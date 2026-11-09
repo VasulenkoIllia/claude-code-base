@@ -1,0 +1,13 @@
+name	kind	source	upstream_path	patch
+api-design	skill	2d515e4	skills/api-design	api-design.patch
+database-migrations	skill	2d515e4	skills/database-migrations	database-migrations.patch
+docker-patterns	skill	125d5e6	skills/docker-patterns	docker-patterns.patch
+documentation-lookup	skill	2d515e4	skills/documentation-lookup	-
+security-review	skill	2d515e4	skills/security-review	security-review.patch
+architect	agent	2d515e4	agents/architect.md	architect.patch
+code-reviewer	agent	2d515e4	agents/code-reviewer.md	code-reviewer.patch
+database-reviewer	agent	2d515e4	agents/database-reviewer.md	database-reviewer.patch
+react-reviewer	agent	2d515e4	agents/react-reviewer.md	react-reviewer.patch
+security-reviewer	agent	2d515e4	agents/security-reviewer.md	security-reviewer.patch
+typescript-reviewer	agent	2d515e4	agents/typescript-reviewer.md	typescript-reviewer.patch
+silent-failure-hunter	agent	marketplace@f359d43b406057f1a8cdbc4ea93b827642c162e6	claude-plugins-official/plugins/pr-review-toolkit/agents/silent-failure-hunter.md	silent-failure-hunter.patch

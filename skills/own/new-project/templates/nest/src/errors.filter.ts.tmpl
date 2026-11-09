@@ -1,0 +1,90 @@
+import { STATUS_CODES, type ServerResponse } from "node:http";
+import { type ArgumentsHost, Catch, type ExceptionFilter, HttpException, Logger } from "@nestjs/common";
+import { HttpAdapterHost } from "@nestjs/core";
+
+const CLIENT_ERROR = 400;
+const SERVER_ERROR = 500;
+// The first and the last status Fastify can send
+const FIRST_STATUS = 100;
+const LAST_STATUS = 599;
+
+// Libraries set statusCode on their errors (an HTTP client's 403, a Fastify error thrown inside a handler);
+// anything else, or a status above 599, is a 500
+function statusOf(error: unknown): number {
+  if (error instanceof Error && "statusCode" in error && typeof error.statusCode === "number"
+    && error.statusCode >= CLIENT_ERROR && error.statusCode <= LAST_STATUS) {
+    return error.statusCode;
+  }
+  return SERVER_ERROR;
+}
+
+// Only Fastify's own errors (code FST_*) explain themselves to the client:
+// an error from a library may carry a URL or part of a key in its message
+function clientMessage(error: unknown, statusCode: number): string {
+  if (error instanceof Error && "code" in error && typeof error.code === "string" && error.code.startsWith("FST_")) {
+    return error.message;
+  }
+  return STATUS_CODES[statusCode] ?? "Error";
+}
+
+// An HttpException may carry any number, such as an upstream's status passed on: one Fastify cannot send is a 500
+function exceptionStatus(exception: HttpException): number {
+  const status = exception.getStatus();
+  return status >= FIRST_STATUS && status <= LAST_STATUS ? status : SERVER_ERROR;
+}
+
+// What the filter reads from Fastify's request and reply. For an error in a middleware Nest passes Node's own
+// request and response: middie copies the id and the original URL onto the request (its url is cut to the part
+// after the middleware's path), and the response has no raw.
+interface FastifyRequestLike {
+  id?: string;
+  method: string;
+  url: string;
+  originalUrl?: string;
+}
+
+interface FastifyReplyLike {
+  raw: ServerResponse;
+}
+
+// Takes the place of Nest's own filter, which sends the client the message of a Fastify or http-errors error and
+// the body of an HttpException at any status. Here, as in the Fastify type, every 5xx is logged in full and
+// answered without details. Below 500 an HttpException goes out as is: it comes from the app's code or from
+// Fastify (the adapter turns its errors, such as broken JSON, into one).
+@Catch()
+export class ErrorsFilter implements ExceptionFilter {
+  private readonly logger = new Logger(ErrorsFilter.name);
+
+  constructor(private readonly adapterHost: HttpAdapterHost) {}
+
+  catch(exception: unknown, host: ArgumentsHost): void {
+    const http = host.switchToHttp();
+    const request = http.getRequest<FastifyRequestLike>();
+    const reply = http.getResponse<FastifyReplyLike | ServerResponse>();
+    const raw = "raw" in reply ? reply.raw : reply;
+    const { httpAdapter } = this.adapterHost;
+    // reqId links to Fastify's request line. The path goes without its query, as in that line (src/http.ts).
+    const url = request.originalUrl ?? request.url;
+    const context = { reqId: request.id, method: request.method, path: url.split("?", 1)[0] ?? url };
+    if (raw.headersSent || httpAdapter.isHeadersSent(reply)) {
+      // The answer has already started (a stream): only a broken connection tells the client it is incomplete
+      this.logger.error(exception, context);
+      if (!raw.writableEnded) raw.destroy();
+      return;
+    }
+    const statusCode = exception instanceof HttpException ? exceptionStatus(exception) : statusOf(exception);
+    if (statusCode >= SERVER_ERROR) {
+      this.logger.error(exception, context);
+      httpAdapter.reply(reply, { statusCode, message: STATUS_CODES[statusCode] ?? "Internal Server Error" }, statusCode);
+      return;
+    }
+    if (exception instanceof HttpException) {
+      // A string body gets the shape of Nest's own bodies
+      const body = exception.getResponse();
+      const { errorCode } = exception;
+      httpAdapter.reply(reply, typeof body === "string" ? { statusCode, message: body, errorCode } : body, statusCode);
+      return;
+    }
+    httpAdapter.reply(reply, { statusCode, message: clientMessage(exception, statusCode) }, statusCode);
+  }
+}

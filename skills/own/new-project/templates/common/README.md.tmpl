@@ -1,0 +1,50 @@
+# {{name}}
+{{#brief}}
+
+Вимоги: docs/requirements.md. Бриф клієнта лежить у `brief/` лише локально: не в git і не в Docker-образі.
+{{/brief}}
+
+## Локально
+- Node {{node}}: `nvm use`.
+- pnpm {{pnpm}} з `packageManager` у package.json: якщо pnpm для цього Node немає, один раз `npm install --global --allow-scripts=pnpm pnpm@{{pnpm}}` (corepack у Node {{node}} немає); pnpm іншої версії сам завантажить цю.
+- `pnpm install`. Скрипти встановлення залежностей не запускаються: кожен пакет зі скриптом стоїть у `allowBuilds` файла `pnpm-workspace.yaml` з `false`, тож пакет із npm не виконає свій код при встановленні. Новий пакет зі скриптом зупиняє `pnpm install`, доки в список не додано його рядок: `false`, або `true` з причиною поруч, якщо без скрипта пакет не працює. `dangerouslyAllowAllBuilds: false` там же не дає глобальному налаштуванню pnpm зняти цю зупинку; змінні середовища `pnpm_config_*` сильніші за файл, тож налаштувань збірки ними не задавати. Власні `pnpm run ...` працюють як звичайно.
+- `cp .env.example .env`.
+{{#db}}
+- У `.env` заповнити `POSTGRES_PASSWORD` (літери й цифри) і той самий пароль у `DATABASE_URL` замість `<POSTGRES_PASSWORD>`.
+{{/db}}
+{{#bot}}
+- У `.env` заповнити `BOT_TOKEN` (від @BotFather; з одним токеном працює лише один запущений бот).
+{{/bot}}
+- Решта ключів `.env` уже має робочі значення для локального запуску; сервер: docs/deployment.md.
+{{#db}}
+- `pnpm run db:up`: Postgres у Docker на 127.0.0.1:5432, команда чекає, доки він готовий. Порт зайнятий іншим проєктом: у `.env` інший `POSTGRES_PORT` і той самий порт у `DATABASE_URL`.
+- `pnpm run db:migrate`: генерує Prisma-клієнт і застосовує міграції з `prisma/migrations`; потрібно й на свіжій копії репо, до `pnpm run dev`.
+- Моделі в `prisma/schema.prisma`; після зміни схеми `pnpm run db:migrate --name add_orders` (назва міграції латиницею, без `--`: pnpm передав би його Prisma) створить і застосує нову міграцію. Файли з `prisma/migrations` комітяться разом зі схемою.
+- `pnpm run db:down` зупиняє Postgres, дані лишаються в томі Docker.
+{{/db}}
+{{#pgvector}}
+- Вектори: Postgres з pgvector в одному образі, розширення вмикає перша міграція. У `prisma/schema.prisma` колонка `Unsupported("vector(1536)")` (розмір вашої моделі), запити через `$queryRaw`.
+{{/pgvector}}
+{{#budget}}
+- Ліміт витрат на платні API: `PAID_API_BUDGET_USD` у `.env`, доларів на день одного процесу за прайсом, 0 забороняє платні виклики; перезапуск починає день спочатку. Один екземпляр `Budget` з `src/budget.ts` на процес, кожен платний виклик проходить `reserve()` до виклику.
+{{/budget}}
+- `pnpm run dev`
+{{#nest}}
+- Нова фіча: `pnpm exec nest g module <фіча>`, потім `pnpm exec nest g controller <фіча>` і `pnpm exec nest g service <фіча>`. Файли й тести (`*.spec.ts`) лягають у `src/<фіча>/`, модуль сам додається в `src/app.module.ts`. `nest g resource` не беремо: він сам ставить пакет без точної версії.
+- `fastify` у `package.json` стоїть у версії, яку закріплює `@nestjs/platform-fastify`: типи з `fastify` описують ту копію, що працює. Оновлювати обидва разом, інакше pnpm поставить другу копію fastify.
+{{/nest}}
+{{#web}}
+- В іншому терміналі `pnpm run dev:web` і відкрити адресу, яку покаже Vite.
+{{/web}}
+{{#integration}}
+- Разовий запуск задачі: `pnpm run once`.
+{{/integration}}
+
+## Перевірка
+`pnpm run check`: typecheck, lint, тести і build. Без нього зміна не вважається готовою.
+{{#db}}
+Prisma-клієнт генерується з `prisma/schema.prisma` у typecheck і build (`prisma generate`), окремо: `pnpm run db:generate`.
+{{/db}}
+
+## Деплой
+docs/deployment.md. Зовнішні сервіси: docs/integrations.md. Рішення: docs/decisions.md.

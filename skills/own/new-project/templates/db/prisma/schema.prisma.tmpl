@@ -1,0 +1,16 @@
+// Models go here. Migrations: `pnpm run db:migrate` locally, additive only (new tables and columns).
+// Conventions from the start: time `DateTime @db.Timestamptz`, money `Decimal` (never Float), an index on every FK.
+{{#pgvector}}
+// Vectors: a column `Unsupported("vector(1536)")`, its size from the model, queries through $queryRaw.
+{{/pgvector}}
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  runtime             = "nodejs"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}

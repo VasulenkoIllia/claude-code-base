@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+{{#nest}}
+    "types": ["node"],
+{{/nest}}
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"],
+{{#nest}}
+  "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts"]
+{{/nest}}
+{{^nest}}
+  "exclude": ["src/**/*.test.ts"]
+{{/nest}}
+}

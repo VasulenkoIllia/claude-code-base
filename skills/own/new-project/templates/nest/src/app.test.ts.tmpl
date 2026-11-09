@@ -1,0 +1,267 @@
+import type { ServerResponse } from "node:http";
+import {
+  Body, Controller, Get, HttpException, Injectable, InternalServerErrorException, Ip, Logger,
+  type MiddlewareConsumer, Module, type NestMiddleware, type NestModule, Param, Post, Req, Res, UnauthorizedException,
+} from "@nestjs/common";
+import type { NestFastifyApplication } from "@nestjs/platform-fastify";
+import { Test } from "@nestjs/testing";
+import type { FastifyRequest } from "fastify";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { AppModule } from "./app.module.js";
+{{#db}}
+import { PrismaClient } from "./generated/prisma/client.js";
+{{/db}}
+import { APP_OPTIONS, createAdapter, requestLine } from "./http.js";
+
+// Routes that fail the way real code does, mounted next to the app's own controllers (TestModule below)
+@Controller("test")
+class FailingController {
+  @Get("boom")
+  boom(): never {
+    throw new Error("database password rejected");
+  }
+
+  @Get("denied")
+  denied(): never {
+    throw Object.assign(new Error("GET https://api.example.test/?key=k123 failed"), { statusCode: 403 });
+  }
+
+  @Get("upstream")
+  upstream(): never {
+    throw new InternalServerErrorException("GET https://api.example.test/?key=k123 answered 502");
+  }
+
+  @Get("status/:code")
+  status(@Param("code") code: string): never {
+    throw Object.assign(new Error(`upstream answered ${code}`), { statusCode: Number(code) });
+  }
+
+  @Get("passed/:code")
+  passed(@Param("code") code: string): never {
+    throw new HttpException(`upstream answered ${code}`, Number(code));
+  }
+
+  // An export that fails halfway, when the status and part of the body are already out
+  @Get("partial")
+  partial(@Res() reply: { raw: ServerResponse }): never {
+    reply.raw.writeHead(200, { "content-type": "text/csv" });
+    reply.raw.write("id\n1\n");
+    throw new Error("export failed");
+  }
+
+  @Get("ip")
+  ip(@Ip() ip: string): { ip: string } {
+    return { ip };
+  }
+
+  @Get("line")
+  line(@Req() request: FastifyRequest): Record<string, unknown> {
+    return requestLine(request);
+  }
+
+  @Get("guarded")
+  guarded(): { status: string } {
+    return { status: "ok" };
+  }
+
+  @Post("echo")
+  echo(@Body() body: unknown): unknown {
+    return body;
+  }
+}
+
+// An auth check before the route: no token is a 401, a token it cannot check is a failure of its own. Nest hands
+// a middleware's error to ErrorsFilter with Node's own request and response.
+@Injectable()
+class AuthMiddleware implements NestMiddleware {
+  use(request: { headers: Record<string, unknown> }): never {
+    if (request.headers["x-token"] === undefined) throw new UnauthorizedException();
+    throw new Error("token store unreachable");
+  }
+}
+
+@Module({ imports: [AppModule], controllers: [FailingController] })
+class TestModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(AuthMiddleware).forRoutes("test/guarded");
+  }
+}
+{{#db}}
+
+// Stands in for Prisma: /ready runs SELECT 1, and the database module disconnects on close
+const database = { answers: true };
+const fakePrisma = {
+  $queryRaw: () => (database.answers ? Promise.resolve([{ ok: 1 }]) : Promise.reject(new Error("connection refused"))),
+  $disconnect: vi.fn(() => Promise.resolve()),
+};
+{{/db}}
+
+describe("app", () => {
+  let app: NestFastifyApplication;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [TestModule] })
+{{#db}}
+      .overrideProvider(PrismaClient)
+      .useValue(fakePrisma)
+{{/db}}
+      .compile();
+    // No logger: the expected 500 and 503 stay out of the test output
+    app = moduleRef.createNestApplication<NestFastifyApplication>(createAdapter(), { ...APP_OPTIONS, logger: false });
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+{{#db}}
+    // The database module disconnects once the server has stopped
+    expect(fakePrisma.$disconnect).toHaveBeenCalledOnce();
+{{/db}}
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("answers ok on /health", async () => {
+    const response = await app.inject({ method: "GET", url: "/health" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: "ok" });
+  });
+
+  it("answers 500 without the error details but logs them", async () => {
+    const logged = vi.spyOn(Logger.prototype, "error");
+    const response = await app.inject({ method: "GET", url: "/test/boom?token=t1" });
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ statusCode: 500, message: "Internal Server Error" });
+    expect(logged).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "database password rejected" }),
+      expect.objectContaining({ method: "GET", path: "/test/boom" }),
+    );
+  });
+
+  it("answers a 5xx HttpException without its message", async () => {
+    const response = await app.inject({ method: "GET", url: "/test/upstream" });
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ statusCode: 500, message: "Internal Server Error" });
+  });
+
+  it("keeps the status of a library error but not its message", async () => {
+    const response = await app.inject({ method: "GET", url: "/test/denied" });
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ statusCode: 403, message: "Forbidden" });
+  });
+
+  // 599 is the last status Fastify can send. Logged once: the filter does not fail on reply.status and then get
+  // that failure as a second error.
+  it.each([[599, 599], [600, 500]])("answers a library status %i with %i and logs the error once", async (thrown, sent) => {
+    const logged = vi.spyOn(Logger.prototype, "error");
+    const response = await app.inject({ method: "GET", url: `/test/status/${thrown}` });
+    expect(response.statusCode).toBe(sent);
+    expect(response.json()).toEqual({ statusCode: sent, message: "Internal Server Error" });
+    expect(logged).toHaveBeenCalledOnce();
+    expect(logged).toHaveBeenCalledWith(
+      expect.objectContaining({ message: `upstream answered ${thrown}` }),
+      expect.objectContaining({ path: `/test/status/${thrown}` }),
+    );
+  });
+
+  it.each([99, 999])("answers an HttpException with status %i as 500 and logs it once", async (thrown) => {
+    const logged = vi.spyOn(Logger.prototype, "error");
+    const response = await app.inject({ method: "GET", url: `/test/passed/${thrown}` });
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ statusCode: 500, message: "Internal Server Error" });
+    expect(logged).toHaveBeenCalledOnce();
+    expect(logged).toHaveBeenCalledWith(
+      expect.objectContaining({ message: `upstream answered ${thrown}` }),
+      expect.objectContaining({ path: `/test/passed/${thrown}` }),
+    );
+  });
+
+  it("logs the request path without its query", async () => {
+    const response = await app.inject({ method: "GET", url: "/test/line?token=t1" });
+    expect(response.json()).toMatchObject({ method: "GET", url: "/test/line" });
+  });
+
+  it("answers the exception of a middleware", async () => {
+    const response = await app.inject({ method: "GET", url: "/test/guarded" });
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ statusCode: 401, message: "Unauthorized" });
+  });
+
+  it("answers a failed middleware with 500 and logs its full path", async () => {
+    const logged = vi.spyOn(Logger.prototype, "error");
+    const response = await app.inject({ method: "GET", url: "/test/guarded", headers: { "x-token": "t1" } });
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ statusCode: 500, message: "Internal Server Error" });
+    expect(logged).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "token store unreachable" }),
+      expect.objectContaining({ path: "/test/guarded" }),
+    );
+  });
+
+  it("breaks the connection when an answer fails halfway, and keeps serving", async () => {
+    const logged = vi.spyOn(Logger.prototype, "error");
+    await expect(app.inject({ method: "GET", url: "/test/partial" })).rejects.toThrow("destroyed");
+    expect(logged).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "export failed" }),
+      expect.objectContaining({ path: "/test/partial" }),
+    );
+    const response = await app.inject({ method: "GET", url: "/health" });
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("takes the client address from X-Forwarded-For only behind a private proxy", async () => {
+    const headers = { "x-forwarded-for": "203.0.113.7" };
+    const viaTraefik = await app.inject({ method: "GET", url: "/test/ip", remoteAddress: "172.18.0.2", headers });
+    expect(viaTraefik.json()).toEqual({ ip: "203.0.113.7" });
+    const direct = await app.inject({ method: "GET", url: "/test/ip", remoteAddress: "198.51.100.9", headers });
+    expect(direct.json()).toEqual({ ip: "198.51.100.9" });
+  });
+
+  it("explains broken JSON with Fastify's own message", async () => {
+    const response = await app.inject({
+      method: "POST", url: "/test/echo", headers: { "content-type": "application/json" }, payload: "{broken",
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toContain("JSON");
+  });
+
+  it("refuses a form body, as the Fastify type does", async () => {
+    const response = await app.inject({
+      method: "POST", url: "/test/echo", headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: "a=1",
+    });
+    expect(response.statusCode).toBe(415);
+  });
+
+  it("answers 404 as JSON", async () => {
+    const response = await app.inject({ method: "GET", url: "/missing" });
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({ statusCode: 404 });
+  });
+{{#db}}
+
+  it("answers ok on /ready when the database answers", async () => {
+    const response = await app.inject({ method: "GET", url: "/ready" });
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("answers 503 on /ready when the database fails and logs the cause", async () => {
+    database.answers = false;
+    const logged = vi.spyOn(Logger.prototype, "error");
+    try {
+      const response = await app.inject({ method: "GET", url: "/ready" });
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toEqual({ statusCode: 503, message: "Service Unavailable" });
+      expect(logged).toHaveBeenCalledWith(
+        expect.objectContaining({ cause: new Error("connection refused") }),
+        expect.objectContaining({ path: "/ready" }),
+      );
+    } finally {
+      database.answers = true;
+    }
+  });
+{{/db}}
+});

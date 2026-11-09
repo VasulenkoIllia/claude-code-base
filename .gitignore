@@ -1,0 +1,44 @@
+# Raw audit data, local overlay, proposals from other sessions: never commit
+research/
+local/
+inbox/
+
+# Old planning documents in the repo root stay outside git (contain an IPv4 and an email)
+/AUDIT-AND-PLAN-*.md
+/SYSTEM-GUIDE-AND-PLAN-*.md
+/SAFETY-CHECK-*.md
+
+# Archives, logs, OS and IDE junk
+*.tgz
+*.log
+.DS_Store
+.idea/
+
+# Secrets and per-machine settings
+.env*
+**/.claude/settings.local.json
+
+# Python
+__pycache__/
+
+# Replay data: real commands and prompts from transcripts (only *.py is tracked). The legacy audit scripts (outside
+# git since 2026-10-15, local/archive/2026-10/from-git/) write these names into whatever folder they are given;
+# raw data belongs in research/replay-cache/.
+tests/replay/**/*.json*
+*.jsonl
+/*.json
+prompts.json
+broad.json
+results_*.json
+
+# Claude Code runtime files of this repo's own sessions (e.g. scheduled_tasks.lock holds a session id and pid);
+# only the project settings are tracked
+/.claude/*
+!/.claude/settings.json
+
+# Do not rely on ~/.config/git/ignore (base-managed) for these
+graphify-out/
+CLAUDE.local.md
+
+# Keep the repo root instruction file trackable even if a global ignore lists CLAUDE.md
+!/CLAUDE.md

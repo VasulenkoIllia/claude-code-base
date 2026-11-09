@@ -1,0 +1,32 @@
+# docker-patterns: upstream ECC 125d5e6 skills/docker-patterns -> repo skills/vendor-ecc/docker-patterns
+# apply: patch -p1 --dry-run -d <tree with upstream at the repo path> < this file
+diff -ruN a/skills/vendor-ecc/docker-patterns/SKILL.md b/skills/vendor-ecc/docker-patterns/SKILL.md
+--- a/skills/vendor-ecc/docker-patterns/SKILL.md
++++ b/skills/vendor-ecc/docker-patterns/SKILL.md
+@@ -1,8 +1,14 @@
+ ---
+ name: docker-patterns
+-description: Docker and Docker Compose patterns for local development, container security, networking, volume strategies, and multi-service orchestration.
+-origin: ECC
++description: "Checklist and patterns for a Dockerfile or Docker Compose change: multi-stage builds, non-root user, pinned image tags, healthchecks with depends_on, ports bound to 127.0.0.1, named volumes, .dockerignore, secrets via env, dev override vs production compose file, debugging container networking."
++when_to_use: "Before finishing or reviewing a change to a Dockerfile, .dockerignore or compose file, or when a container cannot reach another service, loses data after a restart or runs as root."
++paths:
++  - "**/{Dockerfile*,*.Dockerfile,.dockerignore}"
++  - "**/*compose*.{yml,yaml}"
++metadata:
++  origin: ECC
+ ---
++Project rules (AGENTS.md, CLAUDE.md), the base rules in ~/.claude/rules and the existing repo contract win over this skill. Apply it to new and changed code only.
+ 
+ # Docker Patterns
+ 
+@@ -344,9 +350,6 @@
+ ## Anti-Patterns
+ 
+ ```
+-# BAD: Using docker compose in production without orchestration
+-# Use Kubernetes, ECS, or Docker Swarm for production multi-container workloads
+-
+ # BAD: Storing data in containers without volumes
+ # Containers are ephemeral -- all data lost on restart without volumes
+ 

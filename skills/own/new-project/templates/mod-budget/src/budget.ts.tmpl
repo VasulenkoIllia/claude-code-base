@@ -1,0 +1,60 @@
+// Spending limit of paid APIs. Every call is counted at its list price before it is made, and is not made when it
+// would pass the limit: take one Budget per process and call reserve() right before each paid call, a retry included
+// (turn the retries of a provider's SDK off, or reserve for each attempt). A call that fails afterwards stays counted:
+// the provider may have billed it. The counter lives in the process, so a restart starts it again; a limit that must
+// survive restarts or span several processes needs a table.
+const DEFAULT_LIMIT_USD = 1;
+
+export class BudgetReached extends Error {
+  override name = "BudgetReached";
+}
+
+function localDay(): string {
+  const now = new Date();
+  return `${String(now.getFullYear())}-${String(now.getMonth() + 1)}-${String(now.getDate())}`;
+}
+
+// A limit from the environment. Empty counts as missing and takes the default, as in config.ts; 0 means no paid calls
+export function usdLimit(name: string, raw: string | undefined): number {
+  const value = Number(raw || DEFAULT_LIMIT_USD);
+  if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be USD, 0 or more, got "${String(raw)}"`);
+  return value;
+}
+
+export class Budget {
+  #spentUsd = 0;
+  #period: string;
+
+  // limitName: the setting the message names. period: the counter starts again when it changes, a calendar day by
+  // default; a limit for one run passes `() => "run"`
+  constructor(
+    readonly limitUsd: number,
+    readonly limitName: string,
+    private readonly period: () => string = localDay,
+  ) {
+    // A broken limit would switch the check off: NaN compares false
+    if (!Number.isFinite(limitUsd) || limitUsd < 0) throw new Error(`${limitName} is ${String(limitUsd)} USD`);
+    this.#period = period();
+  }
+
+  get spentUsd(): number {
+    return this.#spentUsd;
+  }
+
+  reserve(usd: number): void {
+    // A broken or missing price would pass unseen: NaN compares false, a price lookup that found nothing gives 0
+    if (!Number.isFinite(usd) || usd <= 0) throw new Error(`a call priced at ${String(usd)} USD`);
+    const period = this.period();
+    if (period !== this.#period) {
+      this.#period = period;
+      this.#spentUsd = 0;
+    }
+    if (this.#spentUsd + usd > this.limitUsd) {
+      throw new BudgetReached(
+        `budget reached: spent $${this.#spentUsd.toFixed(4)} of $${String(this.limitUsd)}, ` +
+          `the next call costs $${usd.toFixed(4)} (${this.limitName})`,
+      );
+    }
+    this.#spentUsd += usd;
+  }
+}

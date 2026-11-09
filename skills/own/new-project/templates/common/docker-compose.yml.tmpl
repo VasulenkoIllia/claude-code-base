@@ -1,0 +1,104 @@
+# Production. Do not rename the project: the database volume name derives from it.
+name: {{name}}
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    init: true
+    # Longer than the app's own shutdown timeout, so a stop finishes the work instead of a SIGKILL
+{{#integration}}
+    stop_grace_period: 45s
+{{/integration}}
+{{^integration}}
+    stop_grace_period: 15s
+{{/integration}}
+    # The app needs no Linux capabilities: it runs as the node user
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    env_file: .env
+{{#http}}
+    environment:
+      # Set here, so a stray HOST= in .env cannot make the app listen on loopback only
+      HOST: 0.0.0.0
+{{#db}}
+      DATABASE_URL: postgresql://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@db:5432/${POSTGRES_DB:?}
+{{/db}}
+{{/http}}
+{{^http}}
+{{#db}}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@db:5432/${POSTGRES_DB:?}
+{{/db}}
+{{/http}}
+{{#db}}
+    depends_on:
+      db:
+        condition: service_healthy
+{{/db}}
+{{#http}}
+    # No published port: Traefik reaches the app over its network
+    networks: [default, proxy]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_NETWORK:?}
+      - traefik.http.routers.${APP_NAME:?}.rule=Host(`${APP_DOMAIN:?}`)
+      - traefik.http.routers.${APP_NAME:?}.entrypoints=${TRAEFIK_ENTRYPOINT:?}
+      - traefik.http.routers.${APP_NAME:?}.tls=true
+      - traefik.http.routers.${APP_NAME:?}.tls.certresolver=${TRAEFIK_CERTRESOLVER:?}
+      - traefik.http.routers.${APP_NAME:?}.middlewares=${APP_NAME:?}-headers
+      - traefik.http.services.${APP_NAME:?}.loadbalancer.server.port=${PORT:-3000}
+      # Security headers; frameDeny blocks embedding in an iframe (drop it for a Telegram Mini App)
+      - traefik.http.middlewares.${APP_NAME:?}-headers.headers.stsSeconds=31536000
+      - traefik.http.middlewares.${APP_NAME:?}-headers.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.${APP_NAME:?}-headers.headers.frameDeny=true
+      - traefik.http.middlewares.${APP_NAME:?}-headers.headers.referrerPolicy=strict-origin-when-cross-origin
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+{{/http}}
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+{{#db}}
+
+  db:
+    image: {{db_image}}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+    volumes:
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      # Over TCP: the first-start init server listens only on the socket, so a socket check would pass too early
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  db-data:
+{{/db}}
+{{#http}}
+
+networks:
+  proxy:
+    external: true
+    name: ${TRAEFIK_NETWORK:?}
+{{/http}}

@@ -1,0 +1,33 @@
+{{#db}}
+import { Controller, Get, ServiceUnavailableException } from "@nestjs/common";
+import { PrismaClient } from "../generated/prisma/client.js";
+{{/db}}
+{{^db}}
+import { Controller, Get } from "@nestjs/common";
+{{/db}}
+
+@Controller()
+export class HealthController {
+{{#db}}
+  constructor(private readonly prisma: PrismaClient) {}
+
+{{/db}}
+  // The Docker healthcheck: the process answers
+  @Get("health")
+  health(): { status: string } {
+    return { status: "ok" };
+  }
+{{#db}}
+
+  // Readiness for monitoring: 503 while the database does not answer; ErrorsFilter logs the cause
+  @Get("ready")
+  async ready(): Promise<{ status: string }> {
+    try {
+      await this.prisma.$queryRaw`SELECT 1`;
+      return { status: "ok" };
+    } catch (error) {
+      throw new ServiceUnavailableException("database does not answer", { cause: error });
+    }
+  }
+{{/db}}
+}

@@ -1,0 +1,32 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { log } from "./log.js";
+
+function lastLine(calls: unknown[][]): Record<string, string> {
+  const line = calls.at(-1)?.[0];
+  if (typeof line !== "string") throw new Error("nothing was logged");
+  return JSON.parse(line) as Record<string, string>;
+}
+
+describe("log", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("writes info to stdout as one JSON line", () => {
+    const out = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    log("info", "job started");
+    expect(lastLine(out.mock.calls)).toMatchObject({ level: "info", message: "job started" });
+  });
+
+  it("keeps the cause of an error", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    log("error", "job failed", new Error("fetch failed", { cause: new Error("connect ECONNREFUSED") }));
+    expect(lastLine(err.mock.calls).error).toContain("ECONNREFUSED");
+  });
+
+  it("masks a bot token in a request URL", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    log("warn", "Telegram getUpdates failed", new Error("request to https://api.telegram.org/bot123:AbC-d_9/getUpdates"));
+    expect(lastLine(err.mock.calls).error).not.toContain("123:AbC-d_9");
+  });
+});

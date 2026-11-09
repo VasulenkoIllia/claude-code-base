@@ -1,0 +1,27 @@
+import { Global, Logger, Module, type OnApplicationShutdown } from "@nestjs/common";
+import { config } from "../config.js";
+import { createPrisma } from "../db.js";
+import { PrismaClient } from "../generated/prisma/client.js";
+
+// One Prisma client for the app. @Global: a feature module injects PrismaClient without importing this module.
+@Global()
+@Module({
+  providers: [
+    {
+      provide: PrismaClient,
+      useFactory: (): PrismaClient => {
+        const logger = new Logger("Database");
+        return createPrisma(config.databaseUrl, (error) => logger.error(error));
+      },
+    },
+  ],
+  exports: [PrismaClient],
+})
+export class DatabaseModule implements OnApplicationShutdown {
+  constructor(private readonly prisma: PrismaClient) {}
+
+  // app.close() calls this after the HTTP server has stopped, so no request loses its connection midway
+  async onApplicationShutdown(): Promise<void> {
+    await this.prisma.$disconnect();
+  }
+}

@@ -1,0 +1,17 @@
+import { Module } from "@nestjs/common";
+import { APP_FILTER } from "@nestjs/core";
+{{#db}}
+import { DatabaseModule } from "./database/database.module.js";
+{{/db}}
+import { ErrorsFilter } from "./errors.filter.js";
+import { HealthController } from "./health/health.controller.js";
+
+// Feature modules go into imports (`pnpm exec nest g module <feature>` adds them); ErrorsFilter answers for every route
+@Module({
+{{#db}}
+  imports: [DatabaseModule],
+{{/db}}
+  controllers: [HealthController],
+  providers: [{ provide: APP_FILTER, useClass: ErrorsFilter }],
+})
+export class AppModule {}

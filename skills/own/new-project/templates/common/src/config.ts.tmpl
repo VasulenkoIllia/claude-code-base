@@ -1,0 +1,47 @@
+// Settings from the environment, read once at start: a missing or broken value stops the start with its name.
+// Empty values count as missing (`||`): a key left empty in .env falls back to its default, never to "".
+{{#budget}}
+import { usdLimit } from "./budget.js";
+
+{{/budget}}
+{{#required_env}}
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is not set (see .env.example)`);
+  return value;
+}
+
+{{/required_env}}
+{{#http}}
+const MAX_PORT = 65_535;
+
+function port(): number {
+  const value = Number(process.env.PORT || "3000");
+  if (!Number.isInteger(value) || value <= 0 || value > MAX_PORT) {
+    throw new Error(`PORT must be an integer from 1 to ${MAX_PORT}, got "${String(process.env.PORT)}"`);
+  }
+  return value;
+}
+
+{{/http}}
+export const config = {
+{{#http}}
+  // Local development listens on this machine only; the Docker image sets HOST=0.0.0.0
+  host: process.env.HOST || "127.0.0.1",
+  port: port(),
+  logLevel: process.env.LOG_LEVEL || "info",
+{{/http}}
+{{#integration}}
+  cronSchedule: process.env.CRON_SCHEDULE || "0 * * * *",
+  timezone: process.env.TZ || "Europe/Kyiv",
+{{/integration}}
+{{#bot}}
+  botToken: required("BOT_TOKEN"),
+{{/bot}}
+{{#db}}
+  databaseUrl: required("DATABASE_URL"),
+{{/db}}
+{{#budget}}
+  paidApiBudgetUsd: usdLimit("PAID_API_BUDGET_USD", process.env.PAID_API_BUDGET_USD),
+{{/budget}}
+};

@@ -1,0 +1,26 @@
+H="$1"; f=0
+sg(){ out=$(printf '%s' "$2" | jq -Rs '{prompt:.}' | "$H" 2>/dev/null); rc=$?; [ $rc -eq 0 ] && [[ $out == *additionalContext* ]] && rc=warn; [ "$rc" == "$1" ] || { echo "FAIL expected $1, got $rc: $2"; f=1; }; }
+sg 0 'проведи аудит змін'; sg 0 'docs/risk-assessment-for-production-deploy.md'; sg 0 'JWT_ACCESS_TOKEN_TTL=86400000'
+sg 0 'DATABASE_URL=postgresql://postgres:postgres@localhost:5432/app'; sg 0 '[secret-ok] sk-proj-abcdefghijklmnopqrstuvwxyz123456'
+sg 2 'sk-proj-abcdefghijklmnopqrstuvwxyz123456'; sg 2 'ghp_abcdefghijklmnopqrstuvwxyz0123456789'; sg 2 'AIzaSyA1234567890abcdefghijklmnopqrstuv'
+sg 2 '123456789:AAabcdefghijklmnopqrstuvwxyz0123456789'
+sg warn 'n8n_api_key=abcdEFGH1234ijklMNOP'; sg warn 'DATABASE_URL=postgresql://app:S3cr3tPass@10.0.0.5:5432/app'
+echo "--- new cases"
+sg 2 $'<pasted_content id="1">\nAuthorization: Bearer dR0abcDEF123ghiJKL456mnoPQR789st\n</pasted_content id="1">'
+sg 0 $'<pasted_content id="1">\nsk-proj-abcdefghijklmnopqrstuvwxyz123456\n</pasted_content id="1">\n[secret-ok]'
+sg 2 $'abcd efgh ijkl mnop\n\nапп пасворд для пошти'
+sg 0 $'make this work fast'
+sg 2 '8123456789:AAabcdefghijklmnopqrstuvwxyz0123456789'
+sg 2 'STRIPE_SECRET_KEY=sk_live_abcdefghijklmnopqrstuvwx'
+sg 2 'GOOGLE_CLIENT_SECRET=GOCSPX-abcdefghijklmnopqrstuvwx'
+sg warn 'ЛОГІН: demo   ПАРОЛЬ: 0123456789abcdef01234567'
+sg warn 'TOTP_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+sg warn 'MONGO_URL=mongodb://app:S3cr3tPass@10.0.0.5:27017/app'
+sg warn 'sshpass -p Hunter2pass ssh root@host'
+sg 0 'curl -X POST https://x/api/auth/forgot-password -H "content-type: application/json"'
+sg 0 'Authorization: Bearer ${process.env.API_TOKEN}'
+sg 0 'Authorization: Bearer <token>'
+sg 0 'Пароль: змінено успішно'
+sg 0 'API_KEY=your_api_key_here_please'
+sg 0 'redis://redis:6379'
+[ $f -eq 0 ] && echo "ALL OK"

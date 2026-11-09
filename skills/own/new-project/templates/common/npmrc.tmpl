@@ -1,0 +1,5 @@
+# The project runs on pnpm, which reads only auth and registry settings here: its rule for install scripts of
+# dependencies is allowBuilds in pnpm-workspace.yaml. This line keeps npm and npx, run by mistake, from running them.
+ignore-scripts=true
+# This file is committed: a registry token goes only to ~/.npmrc, and into a Docker build as a build secret
+# (RUN --mount=type=secret), never here.

@@ -1,0 +1,21 @@
+# typescript-reviewer: upstream ECC 2d515e4 agents/typescript-reviewer.md -> repo agents/vendor-ecc/typescript-reviewer.md
+# apply: patch -p1 --dry-run -d <tree with upstream at the repo path> < this file
+--- a/agents/vendor-ecc/typescript-reviewer.md
++++ b/agents/vendor-ecc/typescript-reviewer.md
+@@ -1,6 +1,6 @@
+ ---
+ name: typescript-reviewer
+-description: Expert TypeScript/JavaScript code reviewer specializing in type safety, async correctness, Node/web security, and idiomatic patterns. Use for all TypeScript and JavaScript code changes. MUST BE USED for TypeScript/JavaScript projects.
++description: Expert TypeScript/JavaScript code reviewer specializing in type safety, async correctness, Node/web security, and idiomatic patterns. Use when a change touches types, DTOs, public contracts or async code in TypeScript/JavaScript.
+ tools: Read, Grep, Glob, Bash
+ model: sonnet
+ ---
+@@ -117,7 +117,7 @@
+ 
+ ## Reference
+ 
+-This repo does not yet ship a dedicated `typescript-patterns` skill. For detailed TypeScript and JavaScript patterns, use `coding-standards` plus `frontend-patterns` or `backend-patterns` based on the code being reviewed.
++Duplication, size, naming and dead code are checked by `code-reviewer`.
+ 
+ ---
+ 

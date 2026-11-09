@@ -1,0 +1,97 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Budget, BudgetReached, usdLimit } from "./budget.js";
+
+const LIMIT_NAME = "PAID_API_BUDGET_USD";
+const samePeriod = (): string => "d1";
+
+function budgetOf(limitUsd: number): Budget {
+  return new Budget(limitUsd, LIMIT_NAME, samePeriod);
+}
+
+describe("Budget", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("counts calls up to the limit", () => {
+    const budget = budgetOf(1);
+    budget.reserve(0.75);
+    budget.reserve(0.25);
+    expect(budget.spentUsd).toBe(1);
+  });
+
+  it("stops a call that would just pass the limit, counts nothing for it and names the setting", () => {
+    const budget = budgetOf(1);
+    budget.reserve(0.75);
+    expect(() => {
+      budget.reserve(0.2500001);
+    }).toThrow(BudgetReached);
+    expect(() => {
+      budget.reserve(0.2500001);
+    }).toThrow(LIMIT_NAME);
+    expect(budget.spentUsd).toBe(0.75);
+  });
+
+  it("stops every call at a limit of 0", () => {
+    expect(() => {
+      budgetOf(0).reserve(0.0001);
+    }).toThrow(BudgetReached);
+  });
+
+  it("refuses a broken or missing price", () => {
+    const budget = budgetOf(1);
+    for (const usd of [Number.NaN, Number.POSITIVE_INFINITY, -1, 0]) {
+      expect(() => {
+        budget.reserve(usd);
+      }).toThrow("priced at");
+    }
+    expect(budget.spentUsd).toBe(0);
+  });
+
+  it("refuses a broken limit, which would switch the check off", () => {
+    for (const limit of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+      expect(() => budgetOf(limit)).toThrow(LIMIT_NAME);
+    }
+  });
+
+  it("starts again in a new period and keeps the limit there", () => {
+    let day = "d1";
+    const budget = new Budget(1, LIMIT_NAME, () => day);
+    budget.reserve(1);
+    day = "d2";
+    budget.reserve(1);
+    expect(() => {
+      budget.reserve(1);
+    }).toThrow(BudgetReached);
+    expect(budget.spentUsd).toBe(1);
+  });
+
+  it("takes the local calendar day as the period by default", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 30, 23, 59, 0));
+    const budget = new Budget(1, LIMIT_NAME);
+    budget.reserve(1);
+    vi.setSystemTime(new Date(2026, 9, 30, 23, 59, 59));
+    expect(() => {
+      budget.reserve(1);
+    }).toThrow(BudgetReached);
+    vi.setSystemTime(new Date(2026, 9, 31, 0, 0, 1));
+    budget.reserve(1);
+    expect(budget.spentUsd).toBe(1);
+  });
+});
+
+describe("usdLimit", () => {
+  it("takes a number, with an empty setting falling back to the default", () => {
+    expect(usdLimit(LIMIT_NAME, "2.5")).toBe(2.5);
+    expect(usdLimit(LIMIT_NAME, "0")).toBe(0);
+    expect(usdLimit(LIMIT_NAME, "")).toBe(1);
+    expect(usdLimit(LIMIT_NAME, undefined)).toBe(1);
+  });
+
+  it("stops on a value that is no limit and names the setting", () => {
+    for (const raw of ["abc", "-1", "1e999", "Infinity", "1,5"]) {
+      expect(() => usdLimit(LIMIT_NAME, raw)).toThrow(LIMIT_NAME);
+    }
+  });
+});

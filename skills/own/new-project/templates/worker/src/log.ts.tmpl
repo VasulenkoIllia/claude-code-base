@@ -1,0 +1,18 @@
+import { inspect } from "node:util";
+
+// One JSON line per event on stdout (info) or stderr (warn, error). An error keeps its stack, cause and code
+// (fetch failed: ECONNREFUSED, not just "fetch failed"). A Telegram bot token inside a request URL is masked.
+type Level = "info" | "warn" | "error";
+
+const BOT_TOKEN = /bot\d+:[\w-]+/g;
+const ERROR_DEPTH = 4;
+
+export function log(level: Level, message: string, error?: unknown): void {
+  const entry: Record<string, string> = { time: new Date().toISOString(), level, message };
+  if (error !== undefined) {
+    entry.error = inspect(error, { depth: ERROR_DEPTH, breakLength: Infinity }).replace(BOT_TOKEN, "bot<token>");
+  }
+  const line = JSON.stringify(entry);
+  if (level === "info") console.log(line);
+  else console.error(line);
+}

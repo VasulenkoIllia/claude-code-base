@@ -1,0 +1,28 @@
+# gitleaks config for the Claude setup base (plan step A4).
+#
+# All default rules stay on. The only exception is two hook test files: they feed
+# fake, token-shaped strings to secret-guard.sh and bash-guard.sh, and without this
+# exception bash-guard (which runs `gitleaks git --pre-commit --staged` before every
+# commit) would block the commit.
+#
+# Who reads this file:
+#   - scripts/verify.sh passes it explicitly: gitleaks dir . -c .gitleaks.toml
+#   - commit-leaks.sh, which git runs in a commit, finds it at the top of the worktree.
+#   - bash-guard's pre-commit check finds it on its own, but only when the session cwd
+#     is the repo root (gitleaks looks for ./.gitleaks.toml in its working directory).
+#     Commit from the repo root. From a subdirectory the commit is blocked (fail-safe).
+#     Tested 2026-10-12 with gitleaks 8.30.1 in a throwaway repo: root cwd passes,
+#     subdirectory cwd and a missing config both block.
+#
+# Keep the allowlist narrow: paths only, anchored, inside hooks/. scripts/verify.sh
+# fails if an entry points anywhere else, and its own regex sweep reuses these paths.
+title = "Claude setup base"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Hook test fixtures with fake tokens"
+paths = [
+  '''^hooks/(test-hooks|secret-tests)\.sh$''',
+]

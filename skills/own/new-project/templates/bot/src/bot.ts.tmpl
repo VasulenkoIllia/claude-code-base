@@ -1,0 +1,28 @@
+import { Bot, type BotConfig, type Context } from "grammy";
+import { log } from "./log.js";
+
+export function createBot(token: string, botConfig?: BotConfig<Context>): Bot {
+  const bot = new Bot(token, botConfig);
+
+  // grammY retries failed polling quietly; this puts every failed Telegram call in the log.
+  // A call cancelled by bot.stop() is part of shutdown, not a failure.
+  bot.api.config.use(async (previous, method, payload, signal) => {
+    try {
+      const response = await previous(method, payload, signal);
+      if (!response.ok) log("warn", `Telegram ${method} failed: ${response.error_code} ${response.description}`);
+      return response;
+    } catch (error) {
+      if (!signal?.aborted) log("warn", `Telegram ${method} failed`, error);
+      throw error;
+    }
+  });
+
+  bot.command("start", (ctx) => ctx.reply("Бот працює."));
+
+  // One failed update must not stop polling; the error goes to the log with the update id
+  bot.catch((error) => {
+    log("error", `update ${error.ctx.update.update_id} failed`, error.error);
+  });
+
+  return bot;
+}

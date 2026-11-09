@@ -1,0 +1,48 @@
+# Деплой
+
+Команди на сервері виконує власник. Перед кожною зміною бекап і план відкату.
+
+## Перший запуск
+- Склонувати репо на сервер і створити `.env`, який читає лише власник: `(umask 077 && cp .env.example .env) && chmod 600 .env`.
+- Значення без секретів вписати в `.env` редактором. Секрет дописати так, щоб він не потрапив на екран і в історію shell: `read -rs V && printf '<НАЗВА>=%s\n' "$V" >> .env && unset V`. Рядок `<НАЗВА>=` з прикладу перед цим прибрати з `.env`, інакше їх буде два.
+{{#db}}
+- Пароль БД згенерувати (рядок `POSTGRES_PASSWORD=` з прикладу перед цим прибрати): `printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 24)" >> .env`. Postgres бере пароль лише при першому старті з порожнім томом. Щоб змінити його пізніше: у psql команда `\password <POSTGRES_USER>` (пароль не потрапить в історію shell), потім той самий пароль у `.env`.
+{{/db}}
+{{#http}}
+- Мережа Traefik має вже існувати: `docker network ls` показує мережу з `TRAEFIK_NETWORK`, а `APP_DOMAIN` вказує на цей сервер.
+{{/http}}
+- `docker compose up -d --build`, потім `docker compose ps` і `docker compose logs --tail 50 app`.
+{{#http}}
+- Перевірка: `curl -fsS https://<APP_DOMAIN>/health` повертає `{"status":"ok"}`.
+{{#db}}
+- Зовнішній моніторинг ставити на `https://<APP_DOMAIN>/ready`: він повертає 503, коли БД не відповідає, а `/health` лише показує, що процес живий.
+{{/db}}
+- Заголовки безпеки (HSTS, nosniff, заборона iframe, referrer policy) ставить Traefik, вони в labels у docker-compose.yml. Для Telegram Mini App рядок `frameDeny` прибрати, бо Telegram відкриває застосунок в iframe.
+{{/http}}
+{{#bot}}
+- Перевірка: у логах рядок `polling as @<username>`, бот відповідає на /start.
+{{/bot}}
+{{#integration}}
+- Перевірка: у логах рядок `scheduled ...` з часом наступного запуску.
+{{/integration}}
+{{#db}}
+
+## База даних
+- Міграції застосовуються на старті контейнера (`prisma migrate deploy`), тому app працює однією реплікою. Файли `prisma/migrations/**/migration.sql` комітяться разом зі зміною схеми: без них сервер стартує з тією БД, що є, і `migrate deploy` нічого не каже.
+- Назву проєкту (`name:` у docker-compose.yml) і том `db-data` не міняти: інакше стартує порожня БД.
+{{#pgvector}}
+- Образ `{{db_image}}` це Postgres {{postgres}} з розширенням vector. Нова мажорна версія Postgres лише через dump і restore.
+{{/pgvector}}
+- Бекап перед оновленням, поза текою репо і лише для власника: `(umask 077 && mkdir -p ~/backups/{{name}} && docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > ~/backups/{{name}}/backup-$(date +%F-%H%M).sql)`.
+- Порт БД назовні не відкритий; доступ лише через `docker compose exec db psql -U <POSTGRES_USER> <POSTGRES_DB>`.
+- Застосунок працює під користувачем, що створив БД (власник схеми). Окремий користувач з меншими правами додається, коли проєкт цього потребує; запис у docs/decisions.md.
+{{/db}}
+
+## Оновлення
+- `git pull`, далі `docker compose up -d --build`.
+
+## Відкат
+- `git checkout <попередній коміт чи тег>`, далі `docker compose up -d --build`.
+{{#db}}
+- Міграції назад не відкочуються, тому вони лише additive: нові таблиці й колонки, без видалень у тому ж релізі.
+{{/db}}

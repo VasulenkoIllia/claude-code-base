@@ -1,0 +1,12 @@
+# architect: upstream ECC 2d515e4 agents/architect.md -> repo agents/vendor-ecc/architect.md
+# apply: patch -p1 --dry-run -d <tree with upstream at the repo path> < this file
+--- a/agents/vendor-ecc/architect.md
++++ b/agents/vendor-ecc/architect.md
+@@ -1,6 +1,6 @@
+ ---
+ name: architect
+-description: Software architecture specialist for system design, scalability, and technical decision-making. Use PROACTIVELY when planning new features, refactoring large systems, or making architectural decisions.
++description: Software architecture specialist for system design, scalability, and technical decision-making.
+ tools: Read, Grep, Glob
+ model: opus
+ ---

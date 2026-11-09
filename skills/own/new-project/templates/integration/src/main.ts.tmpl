@@ -1,0 +1,127 @@
+import { Cron } from "croner";
+import { config } from "./config.js";
+{{#db}}
+import { createPrisma } from "./db.js";
+{{/db}}
+import { runJob } from "./job.js";
+import { log } from "./log.js";
+
+// A run gets this long before its signal fires; keep it below the interval between ticks
+const JOB_TIMEOUT_MS = 10 * 60_000;
+// Below stop_grace_period in docker-compose.yml, so the worker exits on its own before Docker kills it
+const SHUTDOWN_TIMEOUT_MS = 30_000;
+const BUSY_POLL_MS = 200;
+
+// Aborted on SIGTERM: a run that listens to its signal stops early instead of being cut off
+const shutdownController = new AbortController();
+{{#db}}
+const prisma = createPrisma(config.databaseUrl, (error) => log("error", "database pool error", error));
+{{/db}}
+
+async function runWithLimits(): Promise<void> {
+  const timeout = AbortSignal.timeout(JOB_TIMEOUT_MS);
+  const onTimeout = (): void => log("error", `job still running after ${JOB_TIMEOUT_MS} ms, its signal fired`);
+  timeout.addEventListener("abort", onTimeout, { once: true });
+  try {
+    await runJob({
+      log: (message) => log("info", message),
+      signal: AbortSignal.any([timeout, shutdownController.signal]),
+{{#db}}
+      prisma,
+{{/db}}
+    });
+  } finally {
+    timeout.removeEventListener("abort", onTimeout);
+  }
+}
+{{#db}}
+
+async function disconnect(): Promise<boolean> {
+  try {
+    await prisma.$disconnect();
+    return true;
+  } catch (error) {
+    log("error", "database disconnect failed", error);
+    return false;
+  }
+}
+{{/db}}
+
+async function runOnce(): Promise<number> {
+  let exitCode = 0;
+  try {
+    await runWithLimits();
+  } catch (error) {
+    log("error", "job failed", error);
+    exitCode = 1;
+  }
+{{#db}}
+  if (!(await disconnect())) exitCode = 1;
+{{/db}}
+  return exitCode;
+}
+
+function schedule(): void {
+  const job = new Cron(
+    config.cronSchedule,
+    {
+      timezone: config.timezone,
+      // A run that is still busy makes the next tick skip instead of overlapping it
+      protect: () => log("warn", "previous run is still busy, tick skipped"),
+      catch: (error) => log("error", "job failed", error),
+    },
+    () => runWithLimits(),
+  );
+  const next = job.nextRun();
+  if (!next) throw new Error(`CRON_SCHEDULE "${config.cronSchedule}" never fires`);
+  log("info", `scheduled "${config.cronSchedule}" (${config.timezone}), next run ${next.toISOString()}`);
+
+  const shutdown = async (signal: string): Promise<void> => {
+    log("info", `${signal}: stopping`);
+{{#db}}
+    // One deadline for the whole stop: a run that ignores its signal, or a database client that is never released,
+    // must not keep the worker going until Docker kills it
+{{/db}}
+{{^db}}
+    // One deadline for the whole stop: a run that ignores its signal must not keep the worker going until Docker
+    // kills it
+{{/db}}
+    setTimeout(() => {
+      log("error", `shutdown timed out${job.isBusy() ? " while the job was still running" : ""}, forcing exit`);
+      process.exit(1);
+    }, SHUTDOWN_TIMEOUT_MS).unref();
+    job.stop();
+    shutdownController.abort();
+    while (job.isBusy()) {
+      await new Promise((resolve) => setTimeout(resolve, BUSY_POLL_MS));
+    }
+{{#db}}
+    process.exit((await disconnect()) ? 0 : 1);
+{{/db}}
+{{^db}}
+    process.exit(0);
+{{/db}}
+  };
+
+  // process.on with a flag, not once: Ctrl+C in pnpm run dev also brings the signal that Node's watch mode passes
+  // on, which would kill the worker halfway through stopping
+  let isShuttingDown = false;
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    process.on(signal, () => {
+      if (isShuttingDown) return;
+      isShuttingDown = true;
+      shutdown(signal).catch((error: unknown) => {
+        log("error", "shutdown failed", error);
+        process.exit(1);
+      });
+    });
+  }
+}
+
+if (process.argv.includes("--once")) {
+  // Exit right away: a socket left open by a failed run (Postgres keeps a refused login up to a minute) must not
+  // hold the process after its result is known
+  process.exit(await runOnce());
+} else {
+  schedule();
+}

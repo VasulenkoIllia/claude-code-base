@@ -1,0 +1,65 @@
+import { GrammyError } from "grammy";
+import { createBot } from "./bot.js";
+import { config } from "./config.js";
+{{#db}}
+import { createPrisma } from "./db.js";
+{{/db}}
+import { log } from "./log.js";
+
+// Below stop_grace_period in docker-compose.yml, so the bot exits on its own before Docker kills it
+const SHUTDOWN_TIMEOUT_MS = 10_000;
+const UNAUTHORIZED = 401;
+const CONFLICT = 409;
+
+{{#db}}
+// Pass prisma to the handlers that need it through createBot parameters
+const prisma = createPrisma(config.databaseUrl, (error) => log("error", "database pool error", error));
+{{/db}}
+const bot = createBot(config.botToken);
+// Set by the signal handler. bot.stop() also confirms the last handled update to Telegram;
+// without it that update comes again after a restart.
+const shutdown: { stopped?: Promise<void> } = {};
+
+// bot.start() below resolves once polling and the running handlers are done, so a signal only asks it to stop.
+// process.on, not once: Ctrl+C in pnpm run dev also brings the signal that Node's watch mode passes on, which
+// would kill the bot halfway through stopping
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.on(signal, () => {
+    if (shutdown.stopped) return;
+    log("info", `${signal}: stopping`);
+    setTimeout(() => {
+      log("error", "shutdown timed out, forcing exit");
+      process.exit(1);
+    }, SHUTDOWN_TIMEOUT_MS).unref();
+    shutdown.stopped = bot.stop().catch((error: unknown) => log("warn", "could not confirm the last update to Telegram", error));
+  });
+}
+
+let exitCode = 0;
+try {
+  await bot.start({ onStart: (info) => log("info", `polling as @${info.username}`) });
+  log("info", "polling stopped");
+} catch (error) {
+  exitCode = 1;
+  if (error instanceof GrammyError && error.error_code === UNAUTHORIZED) {
+    log("error", "Telegram rejected BOT_TOKEN (401): check the token in .env");
+  } else if (error instanceof GrammyError && error.error_code === CONFLICT) {
+    log("error", "409: another instance is already polling with this token; stop it first");
+  } else if (shutdown.stopped) {
+    // A signal during start cancels the setup requests: an expected stop, but the error stays in the log
+    exitCode = 0;
+    log("warn", "stopped while starting", error);
+  } else {
+    log("error", "polling failed", error);
+  }
+}
+await shutdown.stopped;
+{{#db}}
+try {
+  await prisma.$disconnect();
+} catch (error) {
+  log("error", "database disconnect failed", error);
+  exitCode = 1;
+}
+{{/db}}
+process.exit(exitCode);

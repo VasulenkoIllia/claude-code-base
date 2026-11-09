@@ -1,0 +1,22 @@
+.git
+**/.env*
+**/node_modules
+dist
+coverage
+{{#db}}
+src/generated
+{{/db}}
+**/*.pem
+**/*.key
+**/*.dump
+# Dumps in the project root only: prisma/migrations/**/*.sql must reach the image
+*.sql
+**/*.log
+**/.DS_Store
+# Editor and tool folders, .npmrc and notes at the root: the Dockerfile copies no dotfile
+.*
+*.local.md
+docker-compose*.yml
+docs
+design
+brief

@@ -1,0 +1,12 @@
+# react-reviewer: upstream ECC 2d515e4 agents/react-reviewer.md -> repo agents/vendor-ecc/react-reviewer.md
+# apply: patch -p1 --dry-run -d <tree with upstream at the repo path> < this file
+--- a/agents/vendor-ecc/react-reviewer.md
++++ b/agents/vendor-ecc/react-reviewer.md
+@@ -1,6 +1,6 @@
+ ---
+ name: react-reviewer
+-description: Expert React/JSX code reviewer specializing in hook correctness, render performance, server/client component boundaries, accessibility, and React-specific security. Use for any change touching .tsx/.jsx files or React component logic. MUST BE USED for React projects.
++description: Expert React/JSX code reviewer specializing in hook correctness, render performance, server/client component boundaries, accessibility, and React-specific security.
+ tools: Read, Grep, Glob, Bash
+ model: sonnet
+ ---

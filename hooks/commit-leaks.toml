@@ -1,0 +1,23 @@
+# The rules of the secret scan of a commit: bash-guard.sh and commit-leaks.sh pass this file when a project has no
+# .gitleaks.toml of its own. All default rules stay on. Over 60 days only generic-api-key fired, on 17 real commits, each of
+# them test values, mocks or file hashes, and each would be a refused commit. So that one rule keeps out of these two places
+# (owner's decision of 31.10). A token of a known format is found there too, and generic-api-key still reads the working code.
+title = "secret scan of a commit"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "test files and mocks"
+paths = [
+  '''(^|/)(__tests__|__mocks__|tests?|mocks?|fixtures?)/''',
+  '''\.(test|spec)\.[cm]?[jt]sx?$''',
+]
+
+[[rules.allowlists]]
+description = "a sha256 value, as in a manifest of file hashes"
+regexTarget = "secret"
+regexes = ['''^[0-9a-f]{64}$''']

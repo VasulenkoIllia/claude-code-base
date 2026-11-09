@@ -1,0 +1,31 @@
+import { FastifyAdapter } from "@nestjs/platform-fastify";
+// package.json names fastify at the version @nestjs/platform-fastify pins: a single copy, the one the adapter runs
+import type { FastifyRequest } from "fastify";
+
+// The HTTP setup of main.ts, shared with the tests so that they run the app the way production does
+
+// Fastify's request line with the url cut before its query: a token or an email in ?key=value stays out of it.
+// Fastify's own line also logs the accept-version header, which no route here reads.
+export function requestLine(request: FastifyRequest): Record<string, unknown> {
+  return {
+    method: request.method,
+    url: request.url.split("?", 1)[0] ?? request.url,
+    host: request.host,
+    remoteAddress: request.ip,
+    remotePort: request.socket?.remotePort,
+  };
+}
+
+// Traefik reaches the app over the Docker network, so private addresses count as proxies and request.ip is the
+// last address before them. Another container on the shared proxy network could still set X-Forwarded-For,
+// X-Forwarded-Host and X-Forwarded-Proto: never grant access by request.ip alone, build links from APP_DOMAIN.
+export function createAdapter(logLevel?: string): FastifyAdapter {
+  return new FastifyAdapter({
+    trustProxy: ["loopback", "linklocal", "uniquelocal"],
+    // With a level, Fastify logs each request and its own failures in pino's JSON, as in the Fastify type
+    logger: logLevel ? { level: logLevel, serializers: { req: requestLine } } : false,
+  });
+}
+
+// As in the Fastify type, the app takes JSON and plain text only: a form posted from another site gets 415
+export const APP_OPTIONS = { bodyParser: false };

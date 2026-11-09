@@ -1,0 +1,47 @@
+import type { UserFromGetMe } from "grammy/types";
+import { describe, expect, it } from "vitest";
+import { createBot } from "./bot.js";
+
+// A known bot identity: no getMe call, so the test never reaches Telegram
+const BOT_INFO = {
+  id: 1,
+  is_bot: true,
+  first_name: "Test",
+  username: "test_bot",
+  can_join_groups: true,
+  can_read_all_group_messages: false,
+  supports_inline_queries: false,
+  can_connect_to_business: false,
+  has_main_web_app: false,
+  has_topics_enabled: false,
+  allows_users_to_create_topics: false,
+  can_manage_bots: false,
+  supports_join_request_queries: false,
+} satisfies UserFromGetMe;
+
+describe("createBot", () => {
+  it("answers /start", async () => {
+    const bot = createBot("1:test", { botInfo: BOT_INFO });
+    const calls: { method: string; payload: unknown }[] = [];
+    bot.api.config.use((_previous, method, payload) => {
+      calls.push({ method, payload });
+      return Promise.resolve({ ok: true, result: true } as never);
+    });
+
+    await bot.handleUpdate({
+      update_id: 1,
+      message: {
+        message_id: 1,
+        date: 0,
+        chat: { id: 7, type: "private", first_name: "T" },
+        from: { id: 7, is_bot: false, first_name: "T" },
+        text: "/start",
+        entities: [{ type: "bot_command", offset: 0, length: 6 }],
+      },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.method).toBe("sendMessage");
+    expect(calls[0]?.payload).toMatchObject({ chat_id: 7, text: "Бот працює." });
+  });
+});

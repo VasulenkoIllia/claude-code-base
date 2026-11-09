@@ -1,0 +1,129 @@
+import { STATUS_CODES } from "node:http";
+{{#web}}
+import { relative, sep } from "node:path";
+import fastifyStatic from "@fastify/static";
+{{/web}}
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+
+export interface AppOptions {
+  logLevel?: string;
+{{#web}}
+  // Folder with the built web app (dist/web); unset in development, where Vite serves the UI
+  webRoot?: string;
+{{/web}}
+{{#db}}
+  // Readiness: resolves when the database answers, otherwise /ready returns 503
+  checkDatabase?: () => Promise<unknown>;
+{{/db}}
+}
+
+const CLIENT_ERROR = 400;
+const SERVER_ERROR = 500;
+// The last status Fastify can send
+const LAST_STATUS = 599;
+{{#web}}
+const API_PATH = /^\/api(?:\/|$)/;
+// A missing file (/assets/app.js) gets a 404, never the HTML page; so does a client route whose last part has a dot
+const FILE_PATH = /\/[^/]+\.[a-z0-9]+$/i;
+const IMMUTABLE = "public, max-age=31536000, immutable";
+{{/web}}
+
+// Fastify sets statusCode on the errors it raises (bad JSON, failed schema check); anything else thrown, or a
+// status above 599, is a 500
+function statusOf(error: unknown): number {
+  if (error instanceof Error && "statusCode" in error && typeof error.statusCode === "number"
+    && error.statusCode >= CLIENT_ERROR && error.statusCode <= LAST_STATUS) {
+    return error.statusCode;
+  }
+  return SERVER_ERROR;
+}
+
+// Only Fastify's own errors (code FST_*) explain themselves to the client:
+// an error from a library may carry a URL or part of a key in its message
+function clientMessage(error: unknown, statusCode: number): string {
+  if (error instanceof Error && "code" in error && typeof error.code === "string" && error.code.startsWith("FST_")) {
+    return error.message;
+  }
+  return STATUS_CODES[statusCode] ?? "Error";
+}
+
+// Fastify's request line with the url cut before its query: a token or an email in ?key=value stays out of it.
+// Fastify's own line also logs the accept-version header, which no route here reads.
+export function requestLine(request: FastifyRequest): Record<string, unknown> {
+  return {
+    method: request.method,
+    url: request.url.split("?", 1)[0] ?? request.url,
+    host: request.host,
+    remoteAddress: request.ip,
+    remotePort: request.socket?.remotePort,
+  };
+}
+{{#web}}
+
+// A browser route of the web app: GET or HEAD outside /api, without a file extension (the query is left out)
+function isPage(method: string, url: string): boolean {
+  const path = url.split("?", 1)[0] ?? url;
+  return (method === "GET" || method === "HEAD") && !API_PATH.test(path) && !FILE_PATH.test(path);
+}
+{{/web}}
+
+export function buildApp(options: AppOptions = {}): FastifyInstance {
+  // Traefik reaches the app over the Docker network, so private addresses count as proxies and request.ip is the
+  // last address before them. Another container on the shared proxy network could still set X-Forwarded-For:
+  // never grant access by request.ip alone.
+  const app = Fastify({
+    logger: options.logLevel ? { level: options.logLevel, serializers: { req: requestLine } } : false,
+    trustProxy: ["loopback", "linklocal", "uniquelocal"],
+  });
+
+  // 5xx: logged in full, answered without details (no stack or database message to the client)
+  app.setErrorHandler((error, request, reply) => {
+    const statusCode = statusOf(error);
+    if (statusCode >= SERVER_ERROR) {
+      request.log.error({ err: error }, "request failed");
+      return reply.code(statusCode).send({ error: STATUS_CODES[statusCode] ?? "Internal Server Error" });
+    }
+    return reply.code(statusCode).send({ error: clientMessage(error, statusCode) });
+  });
+
+  app.get("/health", (_request, reply) => reply.send({ status: "ok" }));
+{{#db}}
+
+  const { checkDatabase } = options;
+  if (checkDatabase) {
+    app.get("/ready", async (request, reply) => {
+      try {
+        await checkDatabase();
+        return { status: "ok" };
+      } catch (error) {
+        request.log.error({ err: error }, "readiness check failed");
+        return reply.code(503).send({ status: "unavailable" });
+      }
+    });
+  }
+{{/db}}
+{{#web}}
+
+  const { webRoot } = options;
+  if (webRoot) {
+    void app.register(fastifyStatic, {
+      root: webRoot,
+      // Hidden files (a .DS_Store copied from web/public, editor files) are never served
+      dotfiles: "ignore",
+      // Vite names files in assets/ by content hash, so they never change under the same name
+      setHeaders: (reply, filePath) => {
+        if (relative(webRoot, filePath).startsWith(`assets${sep}`)) reply.header("cache-control", IMMUTABLE);
+      },
+    });
+  }
+{{/web}}
+
+  app.setNotFoundHandler((request, reply) => {
+{{#web}}
+    if (webRoot && isPage(request.method, request.url)) return reply.sendFile("index.html");
+{{/web}}
+    return reply.code(404).send({ error: "Not Found" });
+  });
+
+  return app;
+}

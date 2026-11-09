@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "ask": [
+      "Bash(*scripts/install.sh*)",
+      "Bash(*scripts/rollback.sh*)",
+      "Bash(*restore.sh*--apply*)"
+    ]
+  }
+}

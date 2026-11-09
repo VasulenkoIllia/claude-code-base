@@ -1,0 +1,41 @@
+import { describe, expect, it } from "vitest";
+{{#db}}
+import type { PrismaClient } from "./generated/prisma/client.js";
+{{/db}}
+import { runJob } from "./job.js";
+
+describe("runJob", () => {
+  it("logs its start and finish", async () => {
+    const lines: string[] = [];
+{{#db}}
+    const queryRaw = () => Promise.resolve([{ now: new Date(0) }]);
+    await runJob({
+      log: (message) => lines.push(message),
+      signal: new AbortController().signal,
+      prisma: { $queryRaw: queryRaw as unknown as PrismaClient["$queryRaw"] },
+    });
+    expect(lines).toEqual(["job started", "database time 1970-01-01T00:00:00.000Z", "job finished"]);
+{{/db}}
+{{^db}}
+    await runJob({ log: (message) => lines.push(message), signal: new AbortController().signal });
+    expect(lines).toEqual(["job started", "job finished"]);
+{{/db}}
+  });
+
+  it("stops when its time is up", async () => {
+    const lines: string[] = [];
+{{#db}}
+    const queryRaw = () => Promise.resolve([{ now: new Date(0) }]);
+    const run = runJob({
+      log: (message) => lines.push(message),
+      signal: AbortSignal.abort(),
+      prisma: { $queryRaw: queryRaw as unknown as PrismaClient["$queryRaw"] },
+    });
+{{/db}}
+{{^db}}
+    const run = runJob({ log: (message) => lines.push(message), signal: AbortSignal.abort() });
+{{/db}}
+    await expect(run).rejects.toThrow();
+    expect(lines).not.toContain("job finished");
+  });
+});

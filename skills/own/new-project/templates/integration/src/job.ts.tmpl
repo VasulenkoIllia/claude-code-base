@@ -1,0 +1,35 @@
+{{^db}}
+import { setTimeout as delay } from "node:timers/promises";
+{{/db}}
+{{#db}}
+import type { PrismaClient } from "./generated/prisma/client.js";
+{{/db}}
+
+export interface JobContext {
+  log: (message: string) => void;
+  // Fires when the run takes too long: pass it to fetch and other calls that accept a signal
+  signal: AbortSignal;
+{{#db}}
+  prisma: Pick<PrismaClient, "$queryRaw">;
+{{/db}}
+}
+
+// The scheduled work. Keep it idempotent: a rerun after a crash must not repeat effects.
+// Shape: fetch, map in a pure function, write.
+{{#db}}
+export async function runJob({ log, signal, prisma }: JobContext): Promise<void> {
+  log("job started");
+  const rows = await prisma.$queryRaw<{ now: Date }[]>`SELECT now() AS now`;
+  signal.throwIfAborted();
+  log(`database time ${rows[0]?.now.toISOString() ?? "unknown"}`);
+  log("job finished");
+}
+{{/db}}
+{{^db}}
+export async function runJob({ log, signal }: JobContext): Promise<void> {
+  log("job started");
+  // Stands in for the real work, e.g. await fetch(url, { signal })
+  await delay(0, undefined, { signal });
+  log("job finished");
+}
+{{/db}}

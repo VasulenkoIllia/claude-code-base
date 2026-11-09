@@ -1,0 +1,16 @@
+# Рішення
+
+Нові записи зверху: дата, рішення, чому.
+
+{{#brief}}
+- {{date}}: сервер і CI/CD не вирішено до етапу інфраструктури бази; зараз заготовка Docker Compose з docs/deployment.md.
+{{/brief}}
+{{#modules}}
+- {{date}}: понад стандарт: {{modules_text}}. Чому: {{custom}}.
+{{/modules}}
+{{#adopt}}
+- {{date}}: проєкт прийнято в стандарт без змін коду; розриви: docs/standard-gaps.md.
+{{/adopt}}
+{{^adopt}}
+- {{date}}: старт за стандартом, тип {{type}}. Стек і команди: README.
+{{/adopt}}

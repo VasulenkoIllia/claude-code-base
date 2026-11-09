@@ -1,0 +1,20 @@
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+{{#nest}}
+    // `nest g` writes *.spec.ts files that use describe, it and expect without importing them
+    include: ["src/**/*.{test,spec}.ts"],
+    globals: true,
+{{#db}}
+    // AppModule reads config.ts on import; the tests replace PrismaClient, and nothing listens on port 1, so a test
+    // that forgets it fails at once instead of reaching the dev database
+    env: { DATABASE_URL: "postgresql://test@127.0.0.1:1/test" },
+{{/db}}
+{{/nest}}
+{{^nest}}
+    include: ["src/**/*.test.ts"],
+{{/nest}}
+    environment: "node",
+  },
+});

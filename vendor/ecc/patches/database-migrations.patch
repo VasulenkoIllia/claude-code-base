@@ -1,0 +1,366 @@
+# database-migrations: upstream ECC 2d515e4 skills/database-migrations -> repo skills/vendor-ecc/database-migrations
+# apply: patch -p1 --dry-run -d <tree with upstream at the repo path> < this file
+diff -ruN a/skills/vendor-ecc/database-migrations/SKILL.md b/skills/vendor-ecc/database-migrations/SKILL.md
+--- a/skills/vendor-ecc/database-migrations/SKILL.md
++++ b/skills/vendor-ecc/database-migrations/SKILL.md
+@@ -1,9 +1,10 @@
+ ---
+ name: database-migrations
+-description: "Safe, reversible database migration patterns: forward-only production changes, expand-contract zero-downtime renames, concurrent indexes, batched backfills, and per-tool workflows for PostgreSQL, Prisma, Drizzle, Kysely, Django, and golang-migrate. Use when writing a schema or data migration, adding a column or index to a large table, planning a rollback, or preparing a zero-downtime deploy."
++description: "Safe, reversible database migration patterns: forward-only production changes, expand-contract zero-downtime renames, concurrent indexes, batched backfills, and per-tool workflows for PostgreSQL, Prisma, and Drizzle. Use when writing a schema or data migration, adding a column or index to a large table, planning a rollback, or preparing a zero-downtime deploy."
+ metadata:
+   origin: ECC
+ ---
++Project rules (AGENTS.md, CLAUDE.md), the base rules in ~/.claude/rules and the existing repo contract win over this skill. Apply it to new and changed code only.
+ 
+ # Database Migration Patterns
+ 
+@@ -13,15 +14,15 @@
+ 
+ - Creating or altering database tables
+ - Adding/removing columns or indexes
+-- Running data migrations (backfill, transform)
++- Running data backfills or transforms (batched scripts, not migrations)
+ - Planning zero-downtime schema changes
+ - Setting up migration tooling for a new project
+ 
+ ## Core Principles
+ 
+-1. **Every change is a migration** — never alter production databases manually
++1. **Every schema change is a migration** — never alter production databases manually
+ 2. **Migrations are forward-only in production** — rollbacks use new forward migrations
+-3. **Schema and data migrations are separate** — never mix DDL and DML in one migration
++3. **A backfill is not a migration** — the migration holds the DDL; the data backfill is a separate batched script in the repo, run outside the migration: safe to rerun, `--dry-run` with counts, prints the target DB name (no URL) before writing and exits if it is the wrong one
+ 4. **Test migrations against production-sized data** — a migration that works on 100 rows may lock on 10M
+ 5. **Migrations are immutable once deployed** — never edit a migration that has run in production
+ 
+@@ -29,11 +30,11 @@
+ 
+ Before applying any migration:
+ 
+-- [ ] Migration has both UP and DOWN (or is explicitly marked irreversible)
+ - [ ] No full table locks on large tables (use concurrent operations)
+-- [ ] New columns have defaults or are nullable (never add NOT NULL without default)
++- [ ] New columns have defaults or are nullable; NOT NULL on a large or hot table via `CHECK (col IS NOT NULL) NOT VALID` → `VALIDATE CONSTRAINT` → `SET NOT NULL` (see below)
++- [ ] `lock_timeout` set for DDL on a large or hot table
++- [ ] Before a DROP or SET NOT NULL that depends on a backfill: the backfill is done and verified (count of rows where the new column IS NULL or differs = 0) and a backup is taken
+ - [ ] Indexes created concurrently (not inline with CREATE TABLE for existing tables)
+-- [ ] Data backfill is a separate migration from schema change
+ - [ ] Tested against a copy of production data
+ - [ ] Rollback plan documented
+ 
+@@ -53,6 +54,26 @@
+ -- This locks the table and rewrites every row
+ ```
+ 
++### Setting NOT NULL on a Large Table
++
++After the backfill is verified. Each step is its own migration (own transaction):
++
++```sql
++-- Migration A: instant, no scan
++SET lock_timeout = '5s';
++ALTER TABLE users ADD CONSTRAINT users_role_not_null CHECK (role IS NOT NULL) NOT VALID;
++
++-- Migration B: scans the table without blocking reads or writes
++SET lock_timeout = '5s';
++ALTER TABLE users VALIDATE CONSTRAINT users_role_not_null;
++
++-- Migration C: PG12+ uses the validated CHECK, so SET NOT NULL does not scan;
++-- then the helper CHECK is dropped
++SET lock_timeout = '5s';
++ALTER TABLE users ALTER COLUMN role SET NOT NULL;
++ALTER TABLE users DROP CONSTRAINT users_role_not_null;
++```
++
+ ### Adding an Index Without Downtime
+ 
+ ```sql
+@@ -74,13 +95,15 @@
+ -- Step 1: Add new column (migration 001)
+ ALTER TABLE users ADD COLUMN display_name TEXT;
+ 
+--- Step 2: Backfill data (migration 002, data migration)
+-UPDATE users SET display_name = username WHERE display_name IS NULL;
++-- Step 2: Backfill existing rows with a separate batched script, not a migration
++-- (batched pattern in "Large Data Migrations" below)
+ 
+ -- Step 3: Update application code to read/write both columns
+ -- Deploy application changes
+ 
+--- Step 4: Stop writing to old column, drop it (migration 003)
++-- Step 4: Before the drop: backfill verified (this count is 0) and a backup taken
++SELECT count(*) FROM users WHERE display_name IS DISTINCT FROM username;
++-- Then stop writing to old column, drop it (migration 002)
+ ALTER TABLE users DROP COLUMN username;
+ ```
+ 
+@@ -91,9 +114,6 @@
+ -- Step 2: Deploy application without the column reference
+ -- Step 3: Drop column in next migration
+ ALTER TABLE orders DROP COLUMN legacy_status;
+-
+--- For Django: use SeparateDatabaseAndState to remove from model
+--- without generating DROP COLUMN (then drop in next migration)
+ ```
+ 
+ ### Large Data Migrations
+@@ -102,7 +122,8 @@
+ -- BAD: Updates all rows in one transaction (locks table)
+ UPDATE users SET normalized_email = LOWER(email);
+ 
+--- GOOD: Batch update with progress
++-- GOOD: Batch update with progress, run as a separate script, not inside a migration:
++-- COMMIT inside DO fails in a transaction block, and migration tools wrap each migration in one
+ DO $$
+ DECLARE
+   batch_size INT := 10000;
+@@ -114,6 +135,7 @@
+     WHERE id IN (
+       SELECT id FROM users
+       WHERE normalized_email IS NULL
++        AND email IS NOT NULL -- processed rows must drop out, or the loop never ends
+       LIMIT batch_size
+       FOR UPDATE SKIP LOCKED
+     );
+@@ -162,7 +184,7 @@
+ 
+ ### Custom SQL Migration
+ 
+-For operations Prisma cannot express (concurrent indexes, data backfills):
++For operations Prisma cannot express (concurrent indexes):
+ 
+ ```bash
+ # Create empty migration, then edit the SQL manually
+@@ -205,190 +227,6 @@
+ });
+ ```
+ 
+-## Kysely (TypeScript/Node.js)
+-
+-### Workflow (kysely-ctl)
+-
+-```bash
+-# Initialize config file (kysely.config.ts)
+-kysely init
+-
+-# Create a new migration file
+-kysely migrate make add_user_avatar
+-
+-# Apply all pending migrations
+-kysely migrate latest
+-
+-# Rollback last migration
+-kysely migrate down
+-
+-# Show migration status
+-kysely migrate list
+-```
+-
+-### Migration File
+-
+-```typescript
+-// migrations/2024_01_15_001_create_user_profile.ts
+-import { type Kysely, sql } from 'kysely'
+-
+-// IMPORTANT: Always use Kysely<any>, not your typed DB interface.
+-// Migrations are frozen in time and must not depend on current schema types.
+-export async function up(db: Kysely<any>): Promise<void> {
+-  await db.schema
+-    .createTable('user_profile')
+-    .addColumn('id', 'serial', (col) => col.primaryKey())
+-    .addColumn('email', 'varchar(255)', (col) => col.notNull().unique())
+-    .addColumn('avatar_url', 'text')
+-    .addColumn('created_at', 'timestamp', (col) =>
+-      col.defaultTo(sql`now()`).notNull()
+-    )
+-    .execute()
+-
+-  await db.schema
+-    .createIndex('idx_user_profile_avatar')
+-    .on('user_profile')
+-    .column('avatar_url')
+-    .execute()
+-}
+-
+-export async function down(db: Kysely<any>): Promise<void> {
+-  await db.schema.dropTable('user_profile').execute()
+-}
+-```
+-
+-### Programmatic Migrator
+-
+-```typescript
+-import { Migrator, FileMigrationProvider } from 'kysely'
+-import { promises as fs } from 'fs'
+-import * as path from 'path'
+-// ESM only — CJS can use __dirname directly
+-import { fileURLToPath } from 'url'
+-const migrationFolder = path.join(
+-  path.dirname(fileURLToPath(import.meta.url)),
+-  './migrations',
+-)
+-
+-// `db` is your Kysely<any> database instance
+-const migrator = new Migrator({
+-  db,
+-  provider: new FileMigrationProvider({
+-    fs,
+-    path,
+-    migrationFolder,
+-  }),
+-  // WARNING: Only enable in development. Disables timestamp-ordering
+-  // validation, which can cause schema drift between environments.
+-  // allowUnorderedMigrations: true,
+-})
+-
+-const { error, results } = await migrator.migrateToLatest()
+-
+-results?.forEach((it) => {
+-  if (it.status === 'Success') {
+-    console.log(`migration "${it.migrationName}" executed successfully`)
+-  } else if (it.status === 'Error') {
+-    console.error(`failed to execute migration "${it.migrationName}"`)
+-  }
+-})
+-
+-if (error) {
+-  console.error('migration failed', error)
+-  process.exit(1)
+-}
+-```
+-
+-## Django (Python)
+-
+-### Workflow
+-
+-```bash
+-# Generate migration from model changes
+-python manage.py makemigrations
+-
+-# Apply migrations
+-python manage.py migrate
+-
+-# Show migration status
+-python manage.py showmigrations
+-
+-# Generate empty migration for custom SQL
+-python manage.py makemigrations --empty app_name -n description
+-```
+-
+-### Data Migration
+-
+-```python
+-from django.db import migrations
+-
+-def backfill_display_names(apps, schema_editor):
+-    User = apps.get_model("accounts", "User")
+-    batch_size = 5000
+-    users = User.objects.filter(display_name="")
+-    while users.exists():
+-        batch = list(users[:batch_size])
+-        for user in batch:
+-            user.display_name = user.username
+-        User.objects.bulk_update(batch, ["display_name"], batch_size=batch_size)
+-
+-def reverse_backfill(apps, schema_editor):
+-    pass  # Data migration, no reverse needed
+-
+-class Migration(migrations.Migration):
+-    dependencies = [("accounts", "0015_add_display_name")]
+-
+-    operations = [
+-        migrations.RunPython(backfill_display_names, reverse_backfill),
+-    ]
+-```
+-
+-### SeparateDatabaseAndState
+-
+-Remove a column from the Django model without dropping it from the database immediately:
+-
+-```python
+-class Migration(migrations.Migration):
+-    operations = [
+-        migrations.SeparateDatabaseAndState(
+-            state_operations=[
+-                migrations.RemoveField(model_name="user", name="legacy_field"),
+-            ],
+-            database_operations=[],  # Don't touch the DB yet
+-        ),
+-    ]
+-```
+-
+-## golang-migrate (Go)
+-
+-### Workflow
+-
+-```bash
+-# Create migration pair
+-migrate create -ext sql -dir migrations -seq add_user_avatar
+-
+-# Apply all pending migrations
+-migrate -path migrations -database "$DATABASE_URL" up
+-
+-# Rollback last migration
+-migrate -path migrations -database "$DATABASE_URL" down 1
+-
+-# Force version (fix dirty state)
+-migrate -path migrations -database "$DATABASE_URL" force VERSION
+-```
+-
+-### Migration Files
+-
+-```sql
+--- migrations/000003_add_user_avatar.up.sql
+-ALTER TABLE users ADD COLUMN avatar_url TEXT;
+-CREATE INDEX CONCURRENTLY idx_users_avatar ON users (avatar_url) WHERE avatar_url IS NOT NULL;
+-
+--- migrations/000003_add_user_avatar.down.sql
+-DROP INDEX IF EXISTS idx_users_avatar;
+-ALTER TABLE users DROP COLUMN IF EXISTS avatar_url;
+-```
+-
+ ## Zero-Downtime Migration Strategy
+ 
+ For critical production changes, follow the expand-contract pattern:
+@@ -397,7 +235,7 @@
+ Phase 1: EXPAND
+   - Add new column/table (nullable or with default)
+   - Deploy: app writes to BOTH old and new
+-  - Backfill existing data
++  - Backfill existing data (separate batched script, not a migration)
+ 
+ Phase 2: MIGRATE
+   - Deploy: app reads from NEW, writes to BOTH
+@@ -405,6 +243,7 @@
+ 
+ Phase 3: CONTRACT
+   - Deploy: app only uses NEW
++  - Before the drop: backfill verified (rows where NEW IS NULL or differs = 0), backup taken
+   - Drop old column/table in separate migration
+ ```
+ 
+@@ -413,18 +252,18 @@
+ ```
+ Day 1: Migration adds new_status column (nullable)
+ Day 1: Deploy app v2 — writes to both status and new_status
+-Day 2: Run backfill migration for existing rows
++Day 2: Run the batched backfill script for existing rows (not a migration)
+ Day 3: Deploy app v3 — reads from new_status only
+-Day 7: Migration drops old status column
++Day 7: Backfill check is 0 and a backup is taken; migration drops old status column
+ ```
+ 
+ ## Anti-Patterns
+ 
+ | Anti-Pattern | Why It Fails | Better Approach |
+ |-------------|-------------|-----------------|
+-| Manual SQL in production | No audit trail, unrepeatable | Always use migration files |
++| Manual SQL in production | No audit trail, unrepeatable | Migration files for schema; a data backfill is a repo script as in principle 3 |
+ | Editing deployed migrations | Causes drift between environments | Create new migration instead |
+-| NOT NULL without default | Locks table, rewrites all rows | Add nullable, backfill, then add constraint |
++| NOT NULL without default | Locks table, rewrites all rows | Add nullable, backfill by batched script, then `CHECK (col IS NOT NULL) NOT VALID` → `VALIDATE CONSTRAINT` → `SET NOT NULL` |
+ | Inline index on large table | Blocks writes during build | CREATE INDEX CONCURRENTLY |
+-| Schema + data in one migration | Hard to rollback, long transactions | Separate migrations |
++| Backfill inside a migration | Hard to rollback, long transactions, locks | Separate batched script outside the migration |
+ | Dropping column before removing code | Application errors on missing column | Remove code first, drop column next deploy |
