@@ -202,6 +202,7 @@ Whether to take a change over is my call; it arrives with the next tag.
 
 ## Your own copy, and why it is built this way
 
+- How to work with the setup day to day (what runs by itself, what to tell Claude, weekly, a new project, a command cheat sheet): [docs/USAGE.md](docs/USAGE.md) (in Ukrainian).
 - To change the setup for yourself (your own hooks, rules, skills): a fork and the change cycle from [docs/FORK.md](docs/FORK.md) (in Ukrainian).
 - Why the setup is built this way: [docs/adr/](docs/adr/) (in Ukrainian), ADR-001 (install by copy with a manifest) and ADR-002 (the budget of the global rules file and of the rules).
 
