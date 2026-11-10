@@ -30,6 +30,13 @@ English: [README.en.md](README.en.md).
   ```
 
   Перевірка: `uname -m` друкує `arm64`; `git --version` 2.54 чи новіший (з цієї версії git сам запускає commit-leaks на кожен коміт); `python3 --version` 3.11 чи новіший; `command -v python3` друкує `/opt/homebrew/bin/python3` (Homebrew першим у PATH).
+- nvm для Node проєктів: хук nvm-env і `/new-project` беруть його з `~/.nvm/nvm.sh`.
+
+  ```bash
+  brew install nvm
+  ```
+
+  Потім допишіть у `~/.zshrc` два рядки, які радить `brew info nvm` (`export NVM_DIR="$HOME/.nvm"` і рядок, що завантажує `/opt/homebrew/opt/nvm/nvm.sh`), і відкрийте новий термінал: перше завантаження саме створює `~/.nvm/nvm.sh`. Перевірка: `[ -s ~/.nvm/nvm.sh ] && echo ok` друкує `ok`.
 - Для `/new-project` ще `brew install uv osv-scanner` і Docker Desktop.
 - Context7 для документації бібліотек (його кличуть глобальні правила і скіл documentation-lookup): конектор Context7 у claude.ai (Settings, Connectors) або в CLI `claude mcp add --scope user --header "Authorization: Bearer <ключ>" --transport http context7 https://mcp.context7.com/mcp` з ключем з context7.com. Без нього Claude бере документацію з пам'яті моделі.
 
@@ -208,7 +215,7 @@ bash ~/bin/ecc-drift.sh
 
 ## Відомі межі
 
-- Лише macOS на Apple Silicon з Homebrew. Глобальні правила просять Claude відповідати українською, повідомлення хуків теж українською; інша мова відповідей: своє правило в особистому шарі.
+- Лише macOS на Apple Silicon з Homebrew. Глобальні правила просять Claude відповідати українською, повідомлення хуків теж українською; інша мова відповідей: своє правило в особистому шарі, але після стискання контексту хук session-hint усе одно нагадує Claude про українську (прибрати це можна лише у своїй копії, [docs/FORK.md](docs/FORK.md)).
 - `settings.json` керований повністю: ваші ключі там (плагіни, модель, дозволи) install замінить, а окремого файла налаштувань користувача поруч Claude Code не читає. Особисте лише в `~/.claude/rules/` і в проєктах.
 - Проєкти очікуються в `~/WebstormProjects`: там їх шукають claude-time, claude-metrics, doctor (для doctor і project-doctor інша тека через `PROJECTS_DIR`) і docs-sync. claude-metrics не рахує сесій у теці `claude-code-base` (сама база); дні рахує за Києвом, вікна «до» і «після» за замовчуванням з моєї історії (свої: `--before`, `--after`).
 - docs-sync, ecc-drift і claude-time нічого не роблять, доки ви їх не запустите чи не підключите (розділи вище).

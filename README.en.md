@@ -30,6 +30,13 @@ The header of each hook, script and tool says what it does. The list of managed 
   ```
 
   Check: `uname -m` prints `arm64`; `git --version` 2.54 or newer (from that version git itself runs commit-leaks on every commit); `python3 --version` 3.11 or newer; `command -v python3` prints `/opt/homebrew/bin/python3` (Homebrew first on PATH).
+- nvm for the Node of your projects: the nvm-env hook and `/new-project` load it from `~/.nvm/nvm.sh`.
+
+  ```bash
+  brew install nvm
+  ```
+
+  Then add the two lines `brew info nvm` suggests to `~/.zshrc` (`export NVM_DIR="$HOME/.nvm"` and the line that loads `/opt/homebrew/opt/nvm/nvm.sh`) and open a new terminal: the first load creates `~/.nvm/nvm.sh` itself. Check: `[ -s ~/.nvm/nvm.sh ] && echo ok` prints `ok`.
 - For `/new-project` also `brew install uv osv-scanner` and Docker Desktop.
 - Context7 for library docs (the global rules and the documentation-lookup skill call it): the Context7 connector in claude.ai (Settings, Connectors), or in the CLI `claude mcp add --scope user --header "Authorization: Bearer <key>" --transport http context7 https://mcp.context7.com/mcp` with a key from context7.com. Without it Claude takes library docs from the model's memory.
 
@@ -208,7 +215,7 @@ Whether to take a change over is my call; it arrives with the next tag.
 
 ## Known limits
 
-- macOS on Apple Silicon with Homebrew only. The global rules ask Claude to answer in Ukrainian, and hook messages are in Ukrainian too; for another answer language, add your own rule in the personal layer.
+- macOS on Apple Silicon with Homebrew only. The global rules ask Claude to answer in Ukrainian, and hook messages are in Ukrainian too; for another answer language, add your own rule in the personal layer. After a context compaction the session-hint hook still reminds Claude to answer in Ukrainian; only your own copy can drop that ([docs/FORK.md](docs/FORK.md)).
 - `settings.json` is managed as a whole: your keys there (plugins, model, permissions) are replaced by install, and Claude Code reads no separate user settings file next to it. Personal settings live only in `~/.claude/rules/` and in projects.
 - Projects are expected in `~/WebstormProjects`: claude-time, claude-metrics, doctor (doctor and project-doctor take another folder from `PROJECTS_DIR`) and docs-sync look there. claude-metrics leaves out the sessions in a folder named `claude-code-base` (the base itself); it counts days in Kyiv time, and its default "before" and "after" windows come from my history (yours: `--before`, `--after`).
 - docs-sync, ecc-drift and claude-time do nothing until you run or connect them (sections above).
