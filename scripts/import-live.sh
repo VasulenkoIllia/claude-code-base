@@ -131,14 +131,15 @@ for p in "$CLAUDE_HOME/agents"/*; do
   in_list "$n" "${ECC_AGENTS[@]}" "${ANTHROPIC_AGENTS[@]}" || echo "note: unmanaged live agent: $p"
 done
 
-# 3. vendor/ecc/items.tsv (when present) must list exactly the vendored skills and agents
+# 3. vendor/items.tsv (when present; a line per vendored file) must name exactly the vendored skills and agents
 rc=0
-ITEMS="$REPO/vendor/ecc/items.tsv"
+ITEMS="$REPO/vendor/items.tsv"
 if [ -f "$ITEMS" ]; then
   want=$(printf '%s\n' "${ECC_SKILLS[@]}" "${ECC_AGENTS[@]}" "${ANTHROPIC_AGENTS[@]}" | LC_ALL=C sort)
-  have=$(awk -F'\t' 'NR > 1 && $1 != "" {print $1}' "$ITEMS" | LC_ALL=C sort)
+  # agents/<vendor>/<name>.md and skills/<vendor>/<name>/<file>: the third part of the path is the name
+  have=$(awk -F'\t' 'NR > 1 && $1 != "" {split($1, part, "/"); sub(/\.md$/, "", part[3]); print part[3]}' "$ITEMS" | LC_ALL=C sort -u)
   if [ "$want" != "$have" ]; then
-    echo "DIFF vendor/ecc/items.tsv names do not match the vendored item list" >&2
+    echo "DIFF vendor/items.tsv names do not match the vendored item list" >&2
     rc=1
   fi
 fi

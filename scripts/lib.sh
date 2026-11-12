@@ -24,11 +24,16 @@
 #                                                                takes its prompt rule from it)
 #   tools/claude-metrics.py      -> BIN_DIR/claude-metrics
 #   tools/claude_metrics/        -> BIN_DIR/claude_metrics/     (the package claude-metrics imports)
+#   tools/claude-pack.py         -> BIN_DIR/claude-pack         (optional: the packs library, ADR-007)
+#   packs/<pack>/                -> CLAUDE_HOME/packs/<pack>/   (optional: one item per pack)
+#   packs/.claude-plugin/marketplace.json, packs/catalog.json, packs/CATALOG.md
+#                                -> CLAUDE_HOME/packs/...       (the generated catalog; required once packs/ is there)
 #   hooks/<file>                 -> CLAUDE_HOME/hooks/<file>
 #   skills/<group>/<name>/       -> CLAUDE_HOME/skills/<name>/
 #   agents/<group>/<name>.md     -> CLAUDE_HOME/agents/<name>.md
 #   rules/<group>/<name>.md      -> CLAUDE_HOME/rules/<name>.md
-# Never managed: skills/graphify, skills/synced, plugins/, ~/.claude.json, projects/, project files.
+# Never managed: skills/graphify, skills/synced, plugins/ (Claude Code keeps its records of the catalog and of the
+# packs there), state/ (claude-pack's journal packs.jsonl), ~/.claude.json, projects/, project files.
 # Install state: CLAUDE_HOME/.setup-manifest.json (sha256 + mode of every managed file; the git ignore lines
 # of the base, and the subset the base itself added to the live file: only those are ever removed again).
 
@@ -264,8 +269,9 @@ regular_file_or_die() {
 
 # managed_items <tree>: one line per item: phase TAB kind TAB src(rel to tree) TAB key
 # kinds: file, dir (whole folder), merge (line merge), json (validated, written last)
-# phases: 1 hooks, 2 agents, 3 skills, 4 rules, 5 docs, 6 git excludes, 7 bin, 9 settings, (10 retired items, set by
-# install.sh: retired hooks go only after settings.json no longer names them)
+# phases: 1 hooks, 2 agents, 3 skills, 4 rules, 5 docs, 6 git excludes, 7 bin, 8 packs and their catalog, 9 settings,
+# (10 retired items, set by install.sh: retired hooks and packs go only after settings.json no longer names them)
+PACK_CATALOG_FILES=".claude-plugin/marketplace.json catalog.json CATALOG.md"
 managed_items() {
   local t=$1 f n g names="" dup
   for f in global/CLAUDE.global.md global/settings.json global/home-agents.md global/git-excludes \
@@ -342,6 +348,30 @@ managed_items() {
   printf '7\tfile\tscripts/legacy/ecc-drift.sh\tBIN_DIR/ecc-drift.sh\n'
   printf '7\tfile\ttools/time-register.py\tBIN_DIR/claude-time\n'
   printf '7\tfile\ttools/claude-metrics.py\tBIN_DIR/claude-metrics\n'
+  # the packs library (ADR-007), all of it optional: tags up to v2026.11.32 and the public tree have none, and this
+  # lib.sh still installs them (rolls back to them). One dir item per pack, so a pack that comes or goes is a plan
+  # item of its own; the generated catalog as file items. Phase 8: in place before settings.json names the catalog,
+  # retired only after it no longer does
+  if [ -e "$t/tools/claude-pack.py" ] || [ -L "$t/tools/claude-pack.py" ]; then
+    regular_file_or_die "$t/tools/claude-pack.py" tools/claude-pack.py
+    printf '7\tfile\ttools/claude-pack.py\tBIN_DIR/claude-pack\n'
+  fi
+  if [ -e "$t/packs" ] || [ -L "$t/packs" ]; then
+    if [ ! -d "$t/packs" ] || [ -L "$t/packs" ]; then die "packs must be a folder"; fi
+    for f in "$t"/packs/*/; do
+      [ -d "$f" ] || continue
+      n=$(basename "$f")
+      valid_name "$n" || die "bad pack folder name: packs/$n"
+      [ ! -L "$t/packs/$n" ] || die "packs/$n must not be a symlink"
+      regular_file_or_die "$t/packs/$n/.claude-plugin/plugin.json" "packs/$n/.claude-plugin/plugin.json"
+      [ -z "$(find "$t/packs/$n" -type l -print -quit)" ] || die "packs/$n contains a symlink"
+      printf '8\tdir\tpacks/%s\tCLAUDE_HOME/packs/%s\n' "$n" "$n"
+    done
+    for f in $PACK_CATALOG_FILES; do
+      regular_file_or_die "$t/packs/$f" "packs/$f"
+      printf '8\tfile\tpacks/%s\tCLAUDE_HOME/packs/%s\n' "$f" "$f"
+    done
+  fi
   printf '9\tjson\tglobal/settings.json\tCLAUDE_HOME/settings.json\n'
 }
 

@@ -36,6 +36,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 DOCTOR = os.path.join(os.path.dirname(TESTS), 'scripts', 'doctor.sh')
 HOOKS = os.path.join(os.path.dirname(TESTS), 'hooks')
 sys.path.insert(0, TESTS)   # -I drops the script folder from sys.path
+from doctor_library_checks import library_fails  # noqa: E402
 from doctor_origin_checks import docs_origin_fails  # noqa: E402
 HINT_DELIVERED = shlex.quote(os.path.join(TESTS, 'hint-delivered.py'))   # as the FAIL WARN names it
 _spec = importlib.util.spec_from_file_location('hint_delivered_test', os.path.join(TESTS, 'hint-delivered-test.py'))
@@ -787,8 +788,9 @@ def main():
         for case_fails in fake_fails(tmp, data) + docs_helper_fails(tmp, data) + [
                                                    state_file_fails(tmp, data), docs_fails(tmp, data), stack_fails(tmp, data),
                                                    window_fails(tmp, data),
-                                                   commit_scan_fails(tmp, data), scan_probe_fails(tmp),
-                                                   docs_sync_fails(tmp, data), docs_origin_fails(tmp, data, sys.modules[__name__])]:
+                                                   commit_scan_fails(tmp, data), scan_probe_fails(tmp), docs_sync_fails(tmp, data),
+                                                   docs_origin_fails(tmp, data, sys.modules[__name__]),
+                                                   library_fails(tmp, data, sys.modules[__name__])]:
             fails, failed, ran = fails + case_fails, failed + bool(case_fails), ran + 1
     print('\n'.join(fails + ['doctor test: %d cases, %d failed' % (ran, failed)]))
     return 1 if fails else 0

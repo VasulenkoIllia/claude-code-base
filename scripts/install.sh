@@ -21,7 +21,7 @@
 # Only managed items are touched (scripts/lib.sh, managed_items). Nothing is deleted: every replaced or retired
 # live item is moved or copied into <snapshot>/replaced/. ~/.config/git/ignore is merged line by line, never
 # overwritten; only lines the base added itself are ever removed. Order: hooks (then test-all.sh), agents,
-# skills, rules, docs, git ignore, bin, settings.json, retired items, then the manifest. If anything fails after the
+# skills, rules, docs, git ignore, bin, packs and their catalog, settings.json, retired items, then the manifest. If anything fails after the
 # snapshot, the snapshot is restored automatically (its restore.sh); the manifest keeps the previous tag.
 # Exit: 0 ok | 1 error (live restored from the snapshot when writes had started) | 2 usage
 #       3 drift or live != ref (nothing written) | 4 verify failed (nothing written)
@@ -496,6 +496,10 @@ if [ "$MAN_WRITE" = 1 ]; then install_file "$WORK/manifest.new" "$MAN" 600 "$MAN
 APPLYING=0
 final_report
 [ ! -d "$DSP" ] || echo "replaced:     $DSP"
+if awk -F'\t' '$5 == "retire" && $4 == "CLAUDE_HOME/packs/catalog.json" { gone = 1 } END { exit !gone }' "$WORK/plan.tsv"; then
+  # Claude Code keeps its own records of a catalog and of its packs; the base manages neither file
+  echo "library:      the packs catalog left $(show_path CLAUDE_HOME/packs); the records Claude Code keeps of it in $(show_path CLAUDE_HOME/plugins) stay, harmless (doctor.sh names them)"
+fi
 if destinations_are_live; then
   echo "next: restart open Claude sessions (Desktop and CLI), run the canary prompts; bash scripts/doctor.sh --live"
 fi

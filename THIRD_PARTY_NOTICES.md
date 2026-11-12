@@ -1,10 +1,10 @@
 # Third-party notices
 
-The MIT license in [LICENSE](LICENSE) covers the files of this repo except the ones listed below: they keep their own licenses. Where they came from and what changed is also in `vendor/ecc/items.tsv`, `vendor/ecc/ECC-PIN.md` and `vendor/ecc/patches/`.
+The MIT license in [LICENSE](LICENSE) covers the files of this repo except the ones listed below: they keep their own licenses. Where they came from and what changed is also in `vendor/items.tsv`, `vendor/ecc/ECC-PIN.md` and `vendor/ecc/patches/`.
 
 ## everything-claude-code (ECC)
 
-- Source: https://github.com/affaan-m/everything-claude-code, commits 2d515e4 and 125d5e6 (per item in `vendor/ecc/items.tsv`).
+- Source: https://github.com/affaan-m/everything-claude-code, commits 2d515e4 and 125d5e6 (per file in `vendor/items.tsv`).
 - License: MIT, Copyright (c) 2026 Affaan Mustafa (text below).
 - Files: `skills/vendor-ecc/` (database-migrations, docker-patterns, security-review) and `agents/vendor-ecc/` (architect, code-reviewer, database-reviewer, react-reviewer, security-reviewer, typescript-reviewer).
 - Changes: `vendor/ecc/patches/<name>.patch` is the diff against the source commit; a summary is in `vendor/ecc/ECC-PIN.md`, «Local divergences».
@@ -35,7 +35,7 @@ SOFTWARE.
 
 ## pr-review-toolkit (claude-plugins-official)
 
-- Source: https://github.com/anthropics/claude-plugins-official, `plugins/pr-review-toolkit` (author: Anthropic), marketplace commit f359d43 (`vendor/ecc/items.tsv`).
+- Source: https://github.com/anthropics/claude-plugins-official, `plugins/pr-review-toolkit` (author: Anthropic), marketplace commit f359d43 (`vendor/items.tsv`).
 - License: Apache License, Version 2.0 (text below).
 - File: `agents/vendor-anthropic/silent-failure-hunter.md`.
 - Changed by the author of this repo: `model: sonnet`, `tools: Read, Grep, Glob, Bash`, a shorter description. The diff against the source is `vendor/ecc/patches/silent-failure-hunter.patch`; the file says so in a comment line of its frontmatter.

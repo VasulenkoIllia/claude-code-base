@@ -1,0 +1,73 @@
+# verify-packs.sh: checks 22-24 of scripts/verify.sh, the packs library (split off for size). Sourced by verify.sh in
+# the root of the tree under test: it uses ok, fail and details and the staged copy STAGE of that script.
+
+# 22. The packs library (ADR-007), all of it optional: a tree without packs/ (a tag up to v2026.11.32, the public
+# version) passes. With packs/: scripts/catalog.py --check (the generated catalog equals a fresh generation; names and
+# layout, frontmatter and budget of every pack: own code, as claude plugin validate does not look at these),
+# managed_items of scripts/lib.sh takes every pack as an item of its own and the catalog as three files, and
+# settings.json registers the catalog `library` at ~/.claude/packs. With tools/claude-pack.py: it is a managed item, and
+# the ask rules on its enable and on edits of ~/.claude/packs are in settings.json (in auto mode the only prompt on
+# the way to an enabled pack)
+packprobs=""; packnote="no packs/ in this tree (the library is optional)"
+mkt=$(jq -r '.extraKnownMarketplaces.library.source | select(.source == "directory") | .path // empty' global/settings.json 2>/dev/null || true)
+items=""
+if [ -f scripts/lib.sh ]; then
+  # shellcheck disable=SC2016  # the inner shell expands $1
+  items=$(bash -c '. "$1/scripts/lib.sh" && managed_items "$1"' _ "$STAGE" 2>&1) || packprobs="$packprobs [managed_items: $(printf '%s\n' "$items" | tail -n 1)]"
+fi
+if [ -d packs ]; then
+  [ -x tools/claude-pack.py ] || packprobs="$packprobs [packs/ without an executable tools/claude-pack.py: nothing would enable a pack]"
+  if [ ! -f scripts/catalog.py ]; then
+    packprobs="$packprobs [packs/ without scripts/catalog.py]"
+  elif cout=$(python3 -I scripts/catalog.py --check . 2>&1); then
+    packnote=$(printf '%s\n' "$cout" | tail -n 1); cout=""   # details are for a catalog that fails only
+  else
+    packprobs="$packprobs [catalog.py --check, below]"
+  fi
+  npacks=$(find packs -mindepth 1 -maxdepth 1 -type d ! -name .claude-plugin | wc -l | tr -d ' ')
+  ndirs=$(printf '%s\n' "$items" | awk -F '\t' '$2 == "dir" && index($4, "CLAUDE_HOME/packs/") == 1' | wc -l | tr -d ' ')
+  nfiles=$(printf '%s\n' "$items" | awk -F '\t' '$2 == "file" && index($4, "CLAUDE_HOME/packs/") == 1' | wc -l | tr -d ' ')
+  if [ "$npacks" != "$ndirs" ] || [ "$nfiles" != 3 ]; then
+    packprobs="$packprobs [managed_items: $ndirs pack item(s) for $npacks pack folder(s), $nfiles catalog file(s) of 3]"
+  fi
+  # shellcheck disable=SC2088  # the text of the settings key, which Claude Code expands
+  [ "$mkt" = '~/.claude/packs' ] || packprobs="$packprobs [settings.json does not register the catalog library at ~/.claude/packs]"
+elif [ -n "$mkt" ]; then
+  packprobs="$packprobs [settings.json registers the catalog library, the tree has no packs/]"
+fi
+if [ -f tools/claude-pack.py ]; then
+  printf '%s\n' "$items" | grep -q "$(printf '\t')BIN_DIR/claude-pack\$" || packprobs="$packprobs [tools/claude-pack.py is no managed item]"
+  for r in 'Bash(*claude-pack*enable*)' 'Edit(~/.claude/packs/**)' 'Write(~/.claude/packs/**)'; do
+    jq -e --arg r "$r" '(.permissions.ask // []) | index($r) != null' global/settings.json >/dev/null 2>&1 ||
+      packprobs="$packprobs [no ask rule $r in settings.json]"
+  done
+  packnote="$packnote; claude-pack is managed, its enable and edits of ~/.claude/packs ask"
+fi
+if [ -z "$packprobs" ]; then ok "packs and catalog: $packnote"
+else fail "packs and catalog:$packprobs"; if [ -n "${cout:-}" ]; then printf '%s\n' "$cout" | details; fi; fi
+
+# 23. catalog.py on made-up packs (tests/catalog-test.py, offline, a temp folder): a clean pack generates the catalog
+# and passes --check, a stale or hand-edited catalog fails it, and every defect the gates name fails with its one problem
+if [ -f scripts/catalog.py ]; then
+  if [ ! -f tests/catalog-test.py ]; then
+    fail "catalog: tests/catalog-test.py is missing"
+  elif ctout=$(python3 -I tests/catalog-test.py 2>&1); then
+    ok "$(printf '%s\n' "$ctout" | tail -1)"
+  else
+    fail "catalog: tests/catalog-test.py"; printf '%s\n' "$ctout" | details
+  fi
+fi
+
+# 24. claude-pack on a made-up home, catalog and project folders (tests/claude-pack-test.py, offline): list and info only
+# read; enable and disable write the one key and a journal line, keep the rest of the file, refuse what they must
+if [ -f tools/claude-pack.py ]; then
+  if ! cpout=$(python3 -I tools/claude-pack.py --help 2>&1) || [ -n "$(find tools -name __pycache__ -print -quit)" ]; then
+    fail "claude-pack: tools/claude-pack.py --help (or a __pycache__ under tools/)"; printf '%s\n' "$cpout" | details
+  elif [ ! -f tests/claude-pack-test.py ]; then
+    fail "claude-pack: tests/claude-pack-test.py is missing"
+  elif cpout=$(python3 -I tests/claude-pack-test.py 2>&1); then
+    ok "$(printf '%s\n' "$cpout" | tail -1)"
+  else
+    fail "claude-pack: tests/claude-pack-test.py"; printf '%s\n' "$cpout" | details
+  fi
+fi

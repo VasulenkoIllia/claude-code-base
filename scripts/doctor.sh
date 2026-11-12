@@ -13,7 +13,8 @@
 # a big journal or .md, a README or a doc of an area behind the code, active projects with no instructions, card, «З чого
 # почати» or STATUS or with big memory files, the old template), the Node standard of the
 # projects there and when versions.json is due (the stack line: node_std.py of the live skill), the docs repo of docs-sync
-# and its error log (docs-sync.sh report: the registry, the connected projects, folders not in it, the push), the unmanaged
+# and its error log (docs-sync.sh report: the registry, the connected projects, folders not in it, the push), the packs
+# library when there is one (its catalog, the projects that enable a pack, what Claude Code still records of a catalog that is gone), the unmanaged
 # items the base never touches, and whether the scan inside a commit works: real commits in a throwaway repo (scripts/commit-scan-probe.sh).
 # Writes nothing outside a temporary folder. One call over the network: gh about the origin of the docs repo (up to
 # DOCS_GH_SECS, 15 s; also with --skip-tests). Destinations: CLAUDE_HOME, HOME_AGENTS, GIT_EXCLUDES, BIN_DIR (see scripts/lib.sh).
@@ -438,10 +439,81 @@ elif [ -s "$ERRLOG" ]; then
   echo "        (SyncError: a sync stopped or files were not copied or deleted, the line says why: a secret with its file and line, no verdict or no time of gitleaks, a busy docs repo, a git or the hook too slow; Kept: a source emptied, mostly deleted or no longer a source, its copy stays (docs-sync.sh sync <folder> applies the first two); PushFailed: a push in the background, by class: auth (gh auth status, the access to the repo), network (the next commit tries again), rejected (other commits on origin: git -C ~/project-docs pull --rebase origin main), no repo (the URL of origin), other (docs-sync.sh push says more), or the scan that stopped it; ShimExit: python3 (127 missing, 142 over 60 s); Error: a fault in docs-sync. The next commit or push of the project syncs and pushes again; after the fix delete the file$older)"
 fi
 
+# The packs library (ADR-007), read only. Silent when the base has no catalog and Claude Code keeps no record of one
+# (a tag before the library, the public version). With a catalog: one line with its packs, whether Claude Code has
+# registered it, and the projects of PROJECTS_DIR that enable a pack (enabledPlugins in .claude/settings.local.json;
+# a link and a worktree copy aside). WARNs: a pack that a project enables and the catalog does not have (a rollback
+# took it: the session starts without it and says nothing, only `claude plugin list` does); a settings.local.json
+# that does not read; a catalog.json that does not read (then the projects are not looked at); with a catalog, a
+# record file of Claude Code that does not read; and, with no catalog installed, the records Claude Code keeps of it in
+# ~/.claude/plugins: no install or rollback touches those files, the records are harmless and stay until removed by
+# hand. A key of a project's settings that is not a pack name is not printed (the file may come with a cloned repo)
+LIB=library
+CAT="$CLAUDE_HOME/packs/catalog.json"
+PLUG="$CLAUDE_HOME/plugins"
+rec_cat=false rec_packs=0 rec_bad=""
+if [ -e "$PLUG/known_marketplaces.json" ]; then
+  # jq -n with input: an empty file (a write cut short) is an error as well, not "no record"
+  rec_cat=$("$JQ" -n -r --arg c "$LIB" 'input | has($c)' "$PLUG/known_marketplaces.json" 2>/dev/null) || { rec_cat=unknown; rec_bad=known_marketplaces.json; }
+fi
+if [ -e "$PLUG/installed_plugins.json" ]; then
+  rec_packs=$("$JQ" -n -r --arg s "@$LIB" '[(input.plugins // {}) | keys[] | select(endswith($s))] | length' "$PLUG/installed_plugins.json" 2>/dev/null) ||
+    { rec_packs=0; rec_bad="${rec_bad:+$rec_bad, }installed_plugins.json"; }
+fi
+lib_names="" lib_state=none
+if [ -f "$CAT" ]; then
+  if lib_names=$("$JQ" -r --arg c "$LIB" 'if .schema == 1 and .catalog == $c then .packs[].name else error("another catalog") end' "$CAT" 2>/dev/null); then
+    lib_state=ok
+  else
+    lib_state=broken
+    echo "  WARN: library: $(show_path CLAUDE_HOME/packs/catalog.json) does not read as the catalog $LIB: claude-pack cannot list or enable packs (install the base again)"
+  fi
+  [ -z "$rec_bad" ] || echo "  WARN: library: $rec_bad in $(show_path CLAUDE_HOME/plugins) does not read: what Claude Code records of the catalog is not known"
+elif [ "$rec_cat" = true ] || [ "$rec_packs" -gt 0 ]; then
+  lib_state=gone
+  echo "  WARN: library: no catalog in $(show_path CLAUDE_HOME/packs), but $(show_path CLAUDE_HOME/plugins) still names it (known_marketplaces.json: the catalog $LIB $([ "$rec_cat" = true ] && echo yes || echo no); installed_plugins.json: $rec_packs record(s) of its packs): left by a rollback to a tag without the library, harmless; no install touches these files, remove the records by hand if they are in the way"
+fi
+if [ "$lib_state" = ok ] || [ "$lib_state" = gone ]; then
+  : >"$W/lib-on"; lib_unread=""
+  for f in "$PROJECTS_DIR"/*/.claude/settings.local.json; do
+    [ -f "$f" ] || continue
+    d=${f%/.claude/settings.local.json}
+    if [ -L "$d" ] || [ -f "$d/.git" ]; then continue; fi
+    if on=$("$JQ" -r --arg s "@$LIB" '(.enabledPlugins // {}) | to_entries[] | select(.value == true and (.key | test("^[a-z0-9][a-z0-9-]{0,63}" + $s + "\\z"))) | .key | rtrimstr($s)' "$f" 2>/dev/null); then
+      while IFS= read -r pk; do
+        [ -z "$pk" ] || printf '%s\t%s\n' "$pk" "${d#"$PROJECTS_DIR"/}" >>"$W/lib-on"
+      done <<<"$on"
+    else
+      lib_unread="${lib_unread:+$lib_unread, }${d#"$PROJECTS_DIR"/}"
+    fi
+  done
+  [ -z "$lib_unread" ] || echo "  WARN: library: .claude/settings.local.json does not read as JSON, its packs are not known: $lib_unread"
+  # pack TAB projects joined with ", ", for the packs of the catalog (known) and for the others (lost)
+  awk -F'\t' 'NR == FNR { if (length($0)) have[$0] = 1; next }
+    { n[$1]++; p[$1] = (p[$1] == "" ? "" : p[$1] ", ") $2 }
+    END { for (k in n) print ((k in have) ? "known" : "lost") "\t" k "\t" n[k] "\t" p[k] }' \
+    <(printf '%s\n' "$lib_names") "$W/lib-on" | LC_ALL=C sort >"$W/lib-use"
+  while IFS=$'\t' read -r kind pk n projects; do
+    [ "$kind" = lost ] || continue
+    # with no catalog the rollback took claude-pack away as well: the way out is the key itself
+    lib_fix="set enabledPlugins[\"$pk@$LIB\"] to false in their .claude/settings.local.json"
+    # shellcheck disable=SC2088  # text for the reader, not a path to expand
+    [ "$lib_state" != ok ] || lib_fix="~/bin/claude-pack disable $pk there"
+    echo "  WARN: library: pack $pk is enabled in $n project(s) ($projects), the catalog has no such pack: their sessions start without it and say nothing ($lib_fix, or install a tag that has the pack)"
+  done <"$W/lib-use"
+  if [ "$lib_state" = ok ]; then
+    npk=$(printf '%s\n' "$lib_names" | grep -c . || true)
+    names=$(printf '%s\n' "$lib_names" | paste -sd, - | sed 's/,/, /g')
+    used=$(awk -F'\t' '$1 == "known" { printf "%s%s in %s (%s)", sep, $2, $3, $4; sep = "; " }' "$W/lib-use")
+    case $rec_cat in true) reg=yes ;; unknown) reg="not known" ;; *) reg="not yet (a session registers the catalog on its own)" ;; esac
+    echo "  library: $npk pack(s) in $(show_path CLAUDE_HOME/packs)${names:+ ($names)}; registered by Claude Code: $reg; enabled: ${used:-in no project of $PROJECTS_DIR}"
+  fi
+fi
+
 # Unmanaged items next to managed ones (never touched by install/rollback)
 manifest_items "$MAN" | cut -f2 >"$W/keys"
 un=""
-for p in "$CLAUDE_HOME"/skills/* "$CLAUDE_HOME"/agents/* "$CLAUDE_HOME"/rules/* "$CLAUDE_HOME"/hooks/*; do
+for p in "$CLAUDE_HOME"/skills/* "$CLAUDE_HOME"/agents/* "$CLAUDE_HOME"/rules/* "$CLAUDE_HOME"/hooks/* "$CLAUDE_HOME"/packs/*; do
   [ -e "$p" ] || [ -L "$p" ] || continue
   key="CLAUDE_HOME/${p#"$CLAUDE_HOME"/}"
   grep -Fxq -- "$key" "$W/keys" || un="$un ${key#CLAUDE_HOME/}"

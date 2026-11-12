@@ -84,7 +84,7 @@ missing=""
 # Every file install.sh maps to a live path must be here: a managed file left out of a commit would
 # otherwise drop out of the base without any message.
 for f in .gitleaks.toml global/CLAUDE.global.md global/settings.json global/home-agents.md \
-         global/git-excludes hooks/test-all.sh vendor/ecc/ECC-PIN.md vendor/ecc/items.tsv \
+         global/git-excludes hooks/test-all.sh vendor/ecc/ECC-PIN.md vendor/items.tsv \
          scripts/legacy/ecc-drift.sh tools/time-register.py tools/time_register/__init__.py tools/claude-metrics.py \
          tools/claude_metrics/__init__.py; do
   [ -f "$f" ] || missing="$missing $f"
@@ -456,22 +456,16 @@ done < <(python3 -I "$WORK/frontmatter-fixtures.py" "$WORK/fixtures" "$SKILL_DES
 if [ -z "$fxbad" ] && [ "$fxn" -gt 0 ]; then ok "frontmatter fixtures: clean tree passes, $fxn broken copies each fail with their one problem"
 else fail "frontmatter fixtures: check 9 misjudged:${fxbad:- no fixtures generated}"; fi
 
-# 9b. vendor/ecc/items.tsv lists exactly the vendored skills and agents (provenance for each) ---------
-if [ -f vendor/ecc/items.tsv ]; then
-  vend="$WORK/vendored.txt"; : > "$vend"
-  for d in skills/vendor-ecc/*/; do
-    if [ -d "$d" ]; then basename "$d" >> "$vend"; fi
-  done
-  for d in agents/vendor-ecc/*.md agents/vendor-anthropic/*.md; do
-    if [ -f "$d" ]; then basename "$d" .md >> "$vend"; fi
-  done
-  LC_ALL=C sort -o "$vend" "$vend"
-  awk -F '\t' 'NR > 1 && $1 != "" { print $1 }' vendor/ecc/items.tsv | LC_ALL=C sort > "$WORK/items-names.txt"
-  if cmp -s "$vend" "$WORK/items-names.txt"; then
-    ok "vendor: items.tsv names the $(wc -l < "$vend" | tr -d ' ') vendored skills and agents, no more, no less"
+# 9b. vendor/items.tsv: where every vendored file came from (one format for the core and for the packs, ADR-007):
+# every file under skills/vendor-* and agents/vendor-* has a line with its class, source, pin and license, a patched
+# file names its patch, a verbatim one has the sha256 of the source. The rules: scripts/vendor_items.py (split off
+# for size), run in the tree under test
+if [ -f vendor/items.tsv ]; then
+  if vout=$(python3 -I "$REPO/scripts/vendor_items.py" 2>&1); then
+    ok "vendor: items.tsv: $(printf '%s\n' "$vout" | head -1); every vendored file has its source, pin and class"
   else
-    fail "vendor: items.tsv differs from skills/vendor-ecc, agents/vendor-ecc, agents/vendor-anthropic (< items.tsv only, > folder only)"
-    diff "$WORK/items-names.txt" "$vend" | grep '^[<>]' | details || true
+    fail "vendor: items.tsv differs from skills/vendor-*, agents/vendor-* or vendor/*/patches"
+    printf '%s\n' "$vout" | tail -n +2 | details
   fi
 fi
 
@@ -769,6 +763,10 @@ if htout=$(python3 -I tests/hint-text-test.py 2>&1); then
 else
   fail "session-hint texts: tests/hint-text-test.py"; printf '%s\n' "$htout" | details
 fi
+
+# 22-24. The packs library (ADR-007), all of it optional: packs and catalog against the installer and the settings,
+# catalog.py and claude-pack on made-up packs and projects. Split off for size: scripts/verify-packs.sh, sourced here
+. "$REPO/scripts/verify-packs.sh"
 
 echo "verify: $CHECKS checks, $FAILS failed"
 [ "$FAILS" -eq 0 ]
