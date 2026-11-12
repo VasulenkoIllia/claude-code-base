@@ -30,6 +30,8 @@ The header of each hook, script and tool says what it does. The list of managed 
   ```
 
   Check: `uname -m` prints `arm64`; `git --version` 2.54 or newer (from that version git itself runs commit-leaks on every commit); `python3 --version` 3.11 or newer; `command -v python3` prints `/opt/homebrew/bin/python3` (Homebrew first on PATH).
+
+  If `command -v python3` prints another path, the usual cause is this: you once installed Python from python.org, its installer put its own folder at the start of PATH in `~/.zprofile`, and Homebrew is not set up in your shell. To fix it, comment out that line in `~/.zprofile`, add the line `eval "$(/opt/homebrew/bin/brew shellenv)"` there and open a new terminal.
 - nvm for the Node of your projects: the nvm-env hook and `/new-project` load it from `~/.nvm/nvm.sh`.
 
   ```bash
@@ -44,7 +46,7 @@ The header of each hook, script and tool says what it does. The list of managed 
 
 About 10 minutes. Install deletes nothing: every replaced file goes into a snapshot, and one command puts it all back (section "Rollback"). Claude Code can do the same steps from a ready prompt (section below).
 
-1. Clone the repo outside `~/WebstormProjects` (the tools take every folder there for a project), for example into `~/claude-code-base`. The URL is on the Code button of this page:
+1. Clone the repo outside `~/WebstormProjects` (the tools take every folder there for a project), for example into `~/claude-code-base`. Do not create the folder first: `git clone` creates it. The commands of the next steps already start with `cd ~/claude-code-base`, so you can run them from any folder. The URL is on the Code button of this page:
 
    ```bash
    git clone <this repo's URL> ~/claude-code-base
@@ -73,7 +75,7 @@ About 10 minutes. Install deletes nothing: every replaced file goes into a snaps
    ```
 
    Expected: exit 0, `live = <tag>, drift 0`, a `commit scan: OK` line. WARN lines about projects, docs or docs-sync are hints, not failures.
-7. In a new session ask Claude to run `git commit --no-verify -m test`: bash-guard stops the command and says why.
+7. In a new session ask Claude to run `git commit --no-verify -m test`: bash-guard stops the command and says why. Claude itself has to run the command, so type the request in the chat of the session. Do not run it in a terminal: bash-guard checks only the commands Claude runs, and there git runs it as usual.
 
 ## Ready prompts for Claude Code
 

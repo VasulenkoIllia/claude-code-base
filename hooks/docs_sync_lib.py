@@ -53,8 +53,11 @@ GIT_LOCAL = ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY
 # git commit exports the author of the project's commit to its hooks: a hook drops these, a command keeps the owner's
 IDENTITY = ('GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_AUTHOR_DATE', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL',
             'GIT_COMMITTER_DATE')
+# LC_ALL: git answers in English whatever the owner's locale (a git with a translation, as Homebrew's): PUSH_CLASSES and
+# push_reason of docs_sync_repo.py read its words. Paths and commit messages stay UTF-8: git takes them as bytes
 ENV = dict({k: v for k, v in os.environ.items() if k not in GIT_LOCAL and not k.startswith(
-    ('GIT_CONFIG_KEY_', 'GIT_CONFIG_VALUE_'))}, GIT_LITERAL_PATHSPECS='1')   # a folder name with * or [ is no glob
+    ('GIT_CONFIG_KEY_', 'GIT_CONFIG_VALUE_'))}, GIT_LITERAL_PATHSPECS='1',   # a folder name with * or [ is no glob
+    LC_ALL='C')
 HOME = os.path.expanduser('~')
 HOOKS = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.expanduser(os.environ.get('DOCS_SYNC_REPO') or '~/project-docs'))

@@ -197,6 +197,11 @@ for i in $(seq 1 30); do put "$P/docs/many/m$i.md"; done; pc many; rm "$P"/docs/
 has 'proj/docs: 25 of ' 'mass deletion'; [ -f "$DR/proj/docs/many/m1.md" ] || bad 'mass deletion: copies went'
 run "$DS" sync "$P"; [ ! -e "$DR/proj/docs/many/m1.md" ] && [ -f "$DR/proj/docs/many/m30.md" ] || bad "sync by hand: $out"
 printf '\n' >>"$DR/registry.tsv"; put "$P/docs/guide.md" v-blank; pc 'a blank line'; same docs/guide.md || bad "a blank registry line: $out"
+# a doc with a name in Cyrillic, from a commit made in a Ukrainian locale: mirrored as before (docs-sync runs its git in
+# the C locale, and git takes a path as bytes)
+put "$P/docs/нотатки/план.md"; LC_ALL=uk_UA.UTF-8 pc 'a name in Cyrillic'
+has 'proj: 1 copied, 0 deleted to' 'a name in Cyrillic: the hook' && same 'docs/нотатки/план.md' &&
+  [ -n "$(git -C "$DR" ls-files 'proj/docs/нотатки/план.md')" ] || bad "a name in Cyrillic: $out"
 
 # a push that failed is tried again by the next commit; push by hand says git's reason; a commit by hand with a secret
 # does not go out, also with a git config that would blind the scan
@@ -206,6 +211,20 @@ for i in $(seq 1 50); do grep -q ' PushFailed git push rc=' "$LOG" && break; sle
 grep -q ' PushFailed git push rc=[0-9]* (no repo)$' "$LOG" || bad "push: no PushFailed line: $(tail -n 1 "$LOG")"
 run "$DS" push; [ "$rc" = 1 ] && has 'git push rc=128 (no repo): ' 'push by hand: a dead origin' &&
   has 'does not appear to be a git repository' 'push by hand: the reason' || bad "push by hand: rc $rc: $out"
+# a git with a translation (Homebrew's; Apple's has none): in a locale other than C its words are not English. docs-sync
+# asks git in the C locale, so the class and the reason of a failed push read the same. The stand-in asks the real git
+# in the C locale and rewrites its words itself: the block reads the same where git has a translation of its own. A push
+# by hand: in a hook git puts its own folder first in PATH, so the stand-in is not the git a hook runs
+mkdir -p "$T/ukgit" && cat >"$T/ukgit/git" <<EOF && chmod +x "$T/ukgit/git"
+#!/bin/bash
+case \${LC_ALL:-\${LC_MESSAGES:-\${LANG:-C}}} in C | POSIX) exec "$(command -v git)" "\$@" ;; esac
+{ LC_ALL=C "$(command -v git)" "\$@" 2>&1 >&3 3>&- | sed -e 's/^fatal: /збій: /' -e 's/does not appear to be a git repository/не схоже на сховище git/' \\
+  -e 's/Could not read from remote repository/не вдалося прочитати з віддаленого сховища/' >&2 3>&-; exit "\${PIPESTATUS[0]}"; } 3>&1
+EOF
+LC_ALL=uk_UA.UTF-8 run "$T/ukgit/git" -C "$T/none" status; has 'збій: ' 'fixture: a translated git'
+LC_ALL=uk_UA.UTF-8 PATH="$T/ukgit:$PATH" run "$DS" push
+[ "$rc" = 1 ] && has 'git push rc=128 (no repo): ' 'a translated git: the class of a failed push' &&
+  has 'does not appear to be a git repository' 'a translated git: the reason' || bad "a translated git: push by hand: rc $rc: $out"
 git -C "$DR" remote set-url origin "$T/origin.git"; pc 'no docs change'; pushed || bad 'push: not tried again by the next commit'
 run "$DS" push; [ "$rc" = 0 ] && has 'the docs repo is up to date with origin' 'push by hand: up to date' || bad "push: $out"
 printf 'token = "%s"\n' "$tok" >"$DR/by-hand.md" && git -C "$DR" add by-hand.md && git -C "$DR" commit -q -m 'by hand'
