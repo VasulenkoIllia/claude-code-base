@@ -23,13 +23,16 @@ count as "push" below; every compaction is due the compaction hint. Claude Code 
 content: hookName PostToolUse:Bash and toolUseID = the call's id for a push, right after the call's result; hookName
 SessionStart after the compact_boundary for a compaction; both before the next assistant message. A command hook that
 printed also leaves hook_success with its command and durationMs. Subagent transcripts (<session>/subagents/) are only
-searched for session-hint texts: the hook is silent in a subagent.
+searched for session-hint texts and compactions: the hook is silent in a subagent, which it knows by agent_id in its
+input. One text is not extra there: the compaction hint after the subagent's own compaction. Claude Code runs
+SessionStart for it with the fields of the main session and no agent_id (docs/compat.md, 2026-11-11), so the hook
+cannot tell; such hints are counted as "own compaction" and not gated.
 
 Safety: transcripts are only read. Output: counts, and the project, session and time of each problem (no commands).
 
 Gate (exit 0 = PASS, 1 = FAIL, 2 = usage error, not proven yet or no data, 3 = the check itself broke): every due
 hint delivered with the exact text (missing 0); no session-hint text where none was due, with another text, twice or
-in a subagent (extra 0); no failed run of session-hint.sh (an error attachment or a non-zero exit naming it as the
+in a subagent, but for the one after its own compaction (extra 0); no failed run of session-hint.sh (an error attachment or a non-zero exit naming it as the
 command: errors 0); PASS needs at least one due push hint and one due compaction hint in checked sessions, else 2. A
 due hint with no assistant message after it yet is pending, not missing: a push hint while the file changed in the
 last IDLE_S seconds (tests/hint_common.py: its reader of one transcript), a compaction hint until the next answer (it
@@ -77,8 +80,12 @@ NO_RESULTS = 'NO DATA: push calls but none with a result (a format change?)'
 
 def judge(f):
     """(outcome, kind, time) of one transcript: delivered, missing or pending for each due hint, extra for each
-    session-hint text that was not due, error for each failed session-hint run."""
+    session-hint text that was not due, error for each failed session-hint run, known for the compaction hint of a
+    subagent's own compaction (the hook cannot see the subagent there: not gated)."""
     out = [('extra', 'subagent', ts) for ts in f['sub_texts']]
+    for c in (c for own in f['sub_compactions'].values() for c in own):
+        hit = min(1, c['texts'].count(TEXT['SessionStart']))
+        out += [('known', 'subagent', c['ts'])] * hit + [('extra', 'subagent', c['ts'])] * (len(c['texts']) - hit)
     for cid, got in f['hints'].items():
         if cid not in f['calls']:   # a hint on a call with neither "push" nor "pr create" in the command
             out += [('extra', 'push', ts) for _, lines, ts in got for line in lines]
@@ -230,8 +237,9 @@ def report(agg, ctx):
     for group in ('checked', 'older'):
         n = agg[group]
         print('%-8s push: delivered %d, missing %d, pending %d, extra %d; compaction: delivered %d, missing %d, pending '
-              '%d, extra %d; subagent extra %d; errors %d' % (group, *(n[o, k] for k in KINDS for o in OUTCOMES),
-                                                              n['extra', 'subagent'], n['error', 'run']))
+              '%d, extra %d; subagent extra %d, own compaction (not gated) %d; errors %d' % (
+                  group, *(n[o, k] for k in KINDS for o in OUTCOMES), n['extra', 'subagent'], n['known', 'subagent'],
+                  n['error', 'run']))
     runs = agg['runs']
     print('time  session-hint runs that printed: %d, durationMs p50 %d, p95 %d, max %d' % (
         len(runs), pct(runs, 0.5), pct(runs, 0.95), max(runs or [0])))

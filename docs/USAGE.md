@@ -51,9 +51,10 @@
 - node-std: на старті нової сесії чи після `/clear`, раз на проєкт і мажор стандарту, читає Node у `.nvmrc`, Dockerfile, compose і CI. Якщо він позаду стандарту, без підтримки чи менше ніж за 6 місяців до її кінця або ніде не закріплений, Claude скаже це одним реченням і запропонує окрему задачу оновлення, нічого не міняючи без вашого OK. Потім до нового мажору стандарту мовчить.
 - secret-guard: не пропускає ваше повідомлення з явним токеном чи ключем (розділ 2).
 - bash-guard: перевіряє кожну shell-команду Claude, блокує або питає (розділ 2).
+- push-allow: відповідає на вікно дозволу, коли вся команда це `git push origin <feature-гілка>` (розділ 2).
 - dup-guard: після правки .ts, .tsx, .js, .jsx, .mjs, .cjs шукає в репо функцію чи клас зі схожою назвою і тілом і дає Claude підказку з шляхом. Нічого не блокує.
 - doc-reminder: коміт Claude з кодом, але без змін документів (README, `docs/`, `*.md`, документи поза git), дає нагадування оновити зачеплені документи до пушу чи деплою. Журнал (STATUS, плани, CHANGELOG, нотатки з датою) документом не рахується. Одне нагадування на серію комітів. Нічого не блокує.
-- session-hint: після пушу і після стискання контексту Claude, якщо далі інша задача, пропонує нову сесію з коротким брифом. Після `gh pr create` чекає CI одним фоновим `gh pr checks <номер> --watch` і закінчує хід рішенням про злиття. Нічого не блокує.
+- session-hint: після пушу і після стискання контексту Claude, якщо далі інша задача, пропонує нову сесію з коротким брифом. Після `gh pr create` чекає CI одним фоновим `gh pr checks <номер> --watch` і на зеленому одразу викликає `gh pr merge`: вікно дозволу цієї команди і є вашим рішенням про злиття (у сесії без вікон дозволу підказка каже спершу спитати). Нічого не блокує.
 - commit-leaks: gitleaks у кожному `git commit` сесії Claude (розділ 2).
 - docs-sync: git-хук підключених проєктів, працює і з термінала та IDE (розділ 2).
 
@@ -70,16 +71,16 @@
 - time-register: «онови реєстр часу», «скільки часу пішло», «скільки часу піде», «оціни в годинах», «трудозатрати» (розділи 3 і 4).
 - client-tz: «ТЗ для клієнта», «ТЗ у ворді», «кошторис», «комерційна пропозиція» (розділ 4).
 - new-project: лише ручний виклик `/new-project` (розділ 4).
-- documentation-lookup: актуальна документація бібліотек через Context7 (конектор: README, «Вимоги»).
-- docker-patterns і api-design з'являються самі, коли Claude торкається Dockerfile чи compose або роутів, контролерів, OpenAPI. database-migrations і security-review вантажать рев'юери.
+- docker-patterns з'являється сам, коли Claude торкається Dockerfile чи compose. database-migrations і security-review вантажать рев'юери.
+- Документацію бібліотек Claude бере з Context7 за рядком глобальних правил, окремого скіла для цього немає (конектор: README, «Вимоги»).
 - Вбудовані в Claude Code: `/simplify` (спрощує дифф), `/code-review` (шукає баги в диффі).
 
 **Інструменти в `~/bin`.** claude-time: реєстр задач і часу сесій. claude-metrics: метрики «до і після», лише читає. ecc-drift.sh: розбіжність скілів і агентів ECC з upstream.
 
 **Дозволи** (`permissions` у `global/settings.json`).
 - Без питань: `git status`, `diff`, `log`, `show`; typecheck, lint, test і build через `npm run`, typecheck, lint і test через `pnpm run`; `docker ps` і логи; `gh pr view` і `checks`, `gh run`; `osv-scanner scan`; claude-time і claude-metrics.
-- З питанням: `git push`, `gh pr merge`, ssh, scp, rsync, `prisma migrate reset` і `db push`; прямі правки керованих файлів `~/.claude` і `~/bin`.
-- Заборонено: `git push --force`, `osv-scanner fix`, читання `.env` і подібних (список у `permissions.deny`), `~/.ssh`, `~/.aws`. Інші `.env.*` закриває запит bash-guard на cat, head, tail.
+- З питанням: `git push` (крім `git push origin <feature-гілка>`, розділ 2; `git -C <тека> push` теж питає), `gh pr merge`, ssh, scp, rsync, `prisma migrate reset` і `db push`, `gh repo create --public`, `gh repo edit --visibility`, термінал застосунку; прямі правки керованих файлів `~/.claude` і `~/bin`.
+- Заборонено: `git push --force`, `osv-scanner fix`, читання `.env` і подібних, також `.env.staging`, `.env.test` і будь-якого `<назва>.env` (список у `permissions.deny`), `~/.ssh`, `~/.aws`. Інші `.env.*` закриває блок bash-guard на друк env-файла.
 - Атрибуції Claude у комітах і PR немає. Транскрипти Claude Code зберігає 180 днів: з них беруть дані claude-time і claude-metrics.
 
 ## 2. Щоденна робота
@@ -110,7 +111,9 @@
 - `--no-verify` і скорочення, `-n` у `git commit` і `git am`, `core.hooksPath`, `HUSKY=0`, також усередині `bash -c "…"` чи `ssh host '…'`. Правило шукає `git commit` будь-де в рядку, також у лапках, тож хибно блокує й текст з окремим `-n` (повідомлення коміту, echo, heredoc): тоді переформулювати чи записати текст через Write;
 - force push і `+refspec`;
 - AI-атрибуція в коміті, PR, issue чи release; ім'я Claude чи Anthropic в авторі коміту чи в git-конфігу репо;
-- `rm -r` системних і домашніх тек, також у лапках; `kill -9 -1`;
+- `rm -r` системних і домашніх тек, також у лапках, у дужках і як `\rm` чи `/bin/rm`, і тек першого рівня дому (`~/.claude`, `~/.ssh`, `~/Documents`, `~/Projects`, `~/WebstormProjects`, `~/project-docs`, `~/claude-time`); `kill -9 -1`;
+- друк env-файла: `cat`, `head`, `tail`, `less`, `more`, `bat`, `grep`, `sed`, `awk` з `.env`, `.env.<щось>` чи `<назва>.env`, також у лапках, з glob (`.env*`) і не першим файлом команди. Проходять приклади (`.env.example`), файл, у який команда пише (`cat > .env <<'EOF'`), маска в тому самому рядку (`| cut -d= -f1`, `| sed`, `| awk`, `| grep -c`, `| wc`), `grep -c`, `-q`, `-l`, `grep -o` з шаблоном назви ключа від `^` до `=`, `sed -i`, stdout у `/dev/null`; причина блоку називає ці форми;
+- `docker compose config` без `-q`, `--services` чи виводу у файл (`-o <файл>`, `> файл`): він друкує секрети з env (з іншим словом перед `config`, як у `docker compose exec app npm config get x`, хук питає);
 - gitleaks знайшов секрет у staged під час `git commit`.
 
 **Скан усередині коміту** (commit-leaks). Git сам запускає `hooks/commit-leaks.sh` у кожному `git commit` сесії Claude (ключі `GIT_CONFIG_*` в `env` файла settings.json, потрібен git 2.54 чи новіший) і бачить усе, що коміт реально бере: `git add` у тій самій команді, `git commit -a`, скрипт. Хуки проєктів працюють далі. Коміти з вашого термінала чи IDE без скану: це й вихід, коли скан помилився.
@@ -122,12 +125,14 @@
 
 **Коли bash-guard питає** (приходить запит дозволу):
 - коміт чи git-налаштування з іменем, що не збігається з вашим git `user.name` чи `user.email`. Виняток: одноразове репо під `/tmp`, але лише коли з команди напевно видно, що git працює саме там;
-- `docker system prune` і `prune` томів, образів і кешу збірки, `docker volume rm`, `docker compose down -v` (томи з e2e, test, tmp, scratch чи sandbox у назві без запиту); `docker compose config` без `-q`, `--services` чи виводу у файл: він друкує секрети з env;
+- `docker system prune` і `prune` томів, образів і кешу збірки, `docker volume rm`, `docker compose down -v` (томи з e2e, test, tmp, scratch чи sandbox у назві без запиту);
 - `prisma migrate reset`, `--accept-data-loss`, `--force-reset`, `prisma migrate resolve`; рядок підключення з паролем до віддаленої БД; DROP, TRUNCATE, dropdb, DELETE без WHERE (крім БД з test чи tmp у назві);
 - `curl | sh` в одному рядку, `sudo rm`, `chmod -R 777`, `npm publish`;
-- `git reset --hard`, `clean -f`, `checkout .`, `restore .`, `stash drop` і `clear`; `rm -r` по uploads, pgdata, `.git`, migrations, backups, dumps; cat, head, tail для `.env`;
+- `git reset --hard`, `clean -f`, `checkout .`, `restore .`, `stash drop` і `clear`; `rm -r` по uploads, pgdata, `.git`, migrations, backups, dumps;
 - commit чи merge у main або master, коли в репо є гілка develop чи dev;
 - хук не зміг перевірити команду, з рядком у `~/.claude/logs/bash-guard.err`: «вхід хука не прочитано» (на кожну команду: зламаний jq чи Claude Code змінив вхід хука; перевірте `/usr/bin/jq --version` і doctor; з міткою `TimeLimit` команда просто задовга), «хук зупинився» (найчастіше вичерпано ліміт процесів важкими паралельними прогонами), «секрети в staged не перевірено» (перед «так» перевірте вручну `gitleaks git --pre-commit --staged --redact`).
+
+**Push у feature-гілку без запиту.** Правило `git push` питає як раніше, але на вікно дозволу відповідає хук push-allow, коли вся команда це `git push origin <гілка>` (прапори лише `-u`, `-q`, `-v`) і поруч лише команди зі списку: `cd /тека` чи `./тека` першою, `echo`, фільтри після `|` без файлів, `git status`, `log`, `diff` без шляхів поза репо, `fetch`, `add`, `commit -m`, `gh pr create`, `view`, `checks`; змінні лише як `$name` чи `${name}`. Гілка не main, master, prod, production, develop, dev, staging, stage, release, deploy, live і не типова гілка origin, яку репо має знати (`git remote set-head origin --auto`); це локальна гілка без однойменного тегу в робочому дереві репо без `pushurl`, сесія основна. Усе інше питає як раніше: push без гілки, тег, `--delete`, інший remote, `git -C`, будь-яка інша команда поруч; force блокується. Збій хука лишає вікно, рядок у `~/.claude/logs/push-allow.err`. Git-хуки репо (`pre-push`) на такому пуші виконуються без вікна, як і хуки коміту.
 
 Хук, що перевищив 15 с, завис чи зник, не питає: команда виконується без перевірки, а doctor показує це рядком `hook failures:`. Правила читають текст, що справді виконується (сценарій `sh -c '…'` теж), і за будь-якого сумніву питають. Перед «так» гляньте, чи це локальна БД і чи є бекап; сумніваєтесь: «ні» і попросіть пояснити.
 
@@ -148,12 +153,12 @@
 
 **Стан бази.** `bash scripts/doctor.sh --live --skip-tests` лише читає. Добрий стан:
 - `live = <тег>, drift 0`;
-- немає рядків `internal errors` і `input of an unknown shape` (dup-guard, doc-reminder, session-hint, bash-guard, node-std);
+- немає рядків `internal errors` і `input of an unknown shape` (dup-guard, doc-reminder, session-hint, bash-guard, push-allow, node-std);
 - `commit scan: OK`: справжній коміт з вигаданим токеном у тимчасовому репо зупиняється;
 - `delivery:` з PASS; одразу після install там NOT PROVEN YET чи NO DATA, доки нові сесії не мали пушу і стискання, і це не збій;
 - `hook failures:` 0 за 7 днів. Зі збоями WARN каже, скільки, яких видів і де. Збій fork означає, що скінчився ліміт процесів: шукайте важкі паралельні прогони в той час. Рядок очиститься сам, коли збою мине 7 днів.
 
-Решта WARN про проєкти в `~/WebstormProjects` (інша тека: `PROJECTS_DIR=<тека>`), а не про базу: завеликі CLAUDE.md, AGENTS.md чи STATUS (`project file over 30 KB`, `STATUS over 60 lines`), `README behind the code`, активний проєкт без інструкцій чи картки, Node позаду стандарту чи без підтримки (рядок `stack:`; оновлення запропонує node-std у сесії проєкту), `docs repo:` (docs-sync). Кожен проєкт окремою сесією; усі прапорці: `bash scripts/project-doctor.sh --all`.
+Решта WARN про проєкти в `~/WebstormProjects` (інша тека: `PROJECTS_DIR=<тека>`), а не про базу: завеликі CLAUDE.md чи AGENTS.md (`project file over 30 KB`), стан документів проєкту одним рядком `docs state:` (STATUS понад 8 КБ, а в активному проєкті ще робочий журнал понад 40 КБ, документ області позаду коду, немає STATUS, файл memory понад 5 КБ, картка без «З чого почати»), `README behind the code`, активний проєкт без інструкцій чи картки, Node позаду стандарту чи без підтримки (рядок `stack:`; оновлення запропонує node-std у сесії проєкту), `docs repo:` (docs-sync). Кожен проєкт окремою сесією; усі прапорці: `bash scripts/project-doctor.sh --all`.
 
 ## 4. Новий проєкт: оцінка, ТЗ і старт
 

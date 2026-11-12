@@ -4,7 +4,10 @@ a /tmp folder, for a /tmp folder the command names or for identity text only in 
 folder fails (also with /tmp only in a log path); any other ask passes only for a class of lost_kind that explains it:
 hooks/bash-guard.sh without bash-guard-exec.py, the old hook here, must not ask once the text of the class is gone; a
 line in the bash-guard error log fails; --match keeps its rows, says what it dropped, counts the median of new asks over all
-working days, gives a QUICK verdict and fails with no call kept. Prints the failed cases and a last line with the count; exit 0 or 1."""
+working days, gives a QUICK verdict and fails with no call kept; a new block passes only for a class named by
+--block-class that the command explains; the model of the ask rules (tests/replay_rules.py), the class of a prompt that
+the hook of PermissionRequest answers, a rule ask that goes away and new asks of a rule in the median. Prints the
+failed cases and a last line with the count; exit 0 or 1."""
 import contextlib
 import importlib.util
 import io
@@ -99,6 +102,144 @@ def match_failures():
     return bad
 
 
+COMPOSE, ENV = 'docker compose config prints the env values', 'printing an env file puts its values'
+# (command, old verdict, reason of the new block, classes the run names, the gate passes)
+BLOCKS = [('docker compose config', 'ask', COMPOSE, {'compose-config'}, True),
+          ('docker compose config', 'ask', COMPOSE, set(), False),
+          ('docker compose config', 'ask', COMPOSE, {'env-print'}, False),
+          ('docker compose -f a.yml \\\n  --profile x config --format json | python3 check.py', 'ask', COMPOSE, {'compose-config'}, True),
+          ('ls -la', 'ask', COMPOSE, {'compose-config'}, False),
+          ('cat .env', 'ask', ENV, {'compose-config', 'env-print'}, True),
+          ('cd app && grep -n KEY config/stage.env | head', 'allow', ENV, {'env-print'}, True),
+          ('grep -rn process.env src/', 'allow', ENV, {'env-print'}, False),
+          # the forms the hooks let through explain no block: one of them blocked is a regression of the hook
+          ('cat .env.example', 'allow', ENV, {'env-print'}, False),
+          ('grep -c KEY .env', 'allow', ENV, {'env-print'}, False),
+          ('cat .env | cut -d= -f1', 'ask', ENV, {'env-print'}, False),
+          ('grep KEY .env > /dev/null && echo set', 'allow', ENV, {'env-print'}, False),
+          ("sed 's/x/y/' .env.example > .env", 'allow', ENV, {'env-print'}, False),
+          ('docker compose config --services', 'ask', COMPOSE, {'compose-config'}, False),
+          ('docker compose -f a.yml config -o /tmp/c.yml', 'ask', COMPOSE, {'compose-config'}, False),
+          ('docker compose exec app npm config get registry', 'ask', COMPOSE, {'compose-config'}, False),
+          ('docker --context prod compose config', 'allow', COMPOSE, {'compose-config'}, True),
+          ('cat .env.example .env', 'ask', ENV, {'env-print'}, True),
+          ('cat "$PWD/.env" | head -3', 'allow', ENV, {'env-print'}, True),
+          ('grep -eKEY .env.local; cat .env | cut -d= -f1', 'allow', ENV, {'env-print'}, True),
+          ('cat .env 2>/dev/null | head -3', 'ask', ENV, {'env-print'}, True),
+          ('grep -rn -i KEY config/stage.env .env.example | head', 'allow', ENV, {'env-print'}, True),
+          ("sed -i 's/a/b/' .env", 'allow', ENV, {'env-print'}, False),
+          ('docker compose -f a.yml config -o /tmp/c.json > /tmp/log 2>&1; jq . /tmp/c.json', 'ask', COMPOSE, {'compose-config'}, True),
+          ('docker compose -f a.yml config 2>&1 | head', 'ask', COMPOSE, {'compose-config'}, True),
+          ('docker compose -f a.yml config --format json > /tmp/c.json 2>&1', 'ask', COMPOSE, {'compose-config'}, False),
+          ('rm -rf ~/.claude', 'allow', 'rm -r on a system or home directory', {'compose-config', 'env-print'}, False)]
+ASK_RULES = ['Bash(git push:*)', 'Bash(git -C * push)', 'Bash(git -C * push *)', 'Bash(gh repo create --public*)',
+             'Bash(gh repo create * --public*)', 'mcp__terminal__run_in_terminal', 'Read(x)', 5]
+# (tool, command, the ask rule that matches)
+RULES = [('Bash', 'git push origin x', 'Bash(git push:*)'), ('Bash', 'cd a && git push', 'Bash(git push:*)'),
+         ('Bash', 'X=1 git push origin x 2>&1 | tail -3', 'Bash(git push:*)'), ('Bash', 'git pushd', None),
+         ('Bash', 'git commit -m "docs: git push notes"', None), ('Bash', "cat > n.md <<'EOF'\ngit push origin x\nEOF", None),
+         ('Bash', 'git -C /x push origin y', 'Bash(git -C * push *)'), ('Bash', 'git -C "/a b" push', 'Bash(git -C * push)'),
+         ('Bash', 'git -C /x status', None), ('Bash', 'git -C /x commit -m pushed', None),
+         ('Bash', 'gh repo create x --public --source .', 'Bash(gh repo create * --public*)'),
+         ('Bash', 'gh repo create --public x', 'Bash(gh repo create --public*)'), ('Bash', 'gh repo create x --private', None),
+         ('mcp__terminal__run_in_terminal', 'ls', 'mcp__terminal__run_in_terminal'), ('Monitor', 'git push origin x', None)]
+# (command, it is a push to a feature branch and nothing else that asks)
+PUSHES = [('git push origin feat/x', True), ('cd a && git push origin -u fix-1 2>&1 | tail -3', True),
+          ('git add -A && git commit -m "ssh host; git push origin main" && git push -u origin feat/x', True),
+          ("git push 'origin' \"feat/x\" &", True), ('git push -q -u origin feat/x 2>&1 | tail -3; echo push=$?', True),
+          ('git push origin main', False), ('git push origin HEAD', False), ('git push origin feat/x; git stash push', False),
+          ('git push', False), ('git push origin', False), ('git push origin feat/x && git push origin fix', False),
+          ('git push origin feat/x; ssh host uptime', False), ('git push origin feat/x && gh pr merge 5', False),
+          ('git push --force origin feat/x', False), ('git push origin feat/x --tags', False),
+          ('git push origin feat/x:main', False), ('git push origin +feat/x', False), ('git push upstream feat/x', False),
+          ('git -C a push origin feat/x', False), ('git push origin feat/x fix-1', False),
+          ('git push origin "$(git branch --show-current)"', False), ('echo "git push origin feat/x"', False)]
+OLD_ASK, NEW_ASK = ('Bash(git push:*)', False), ('Bash(git push:*)', True)
+# (command, verdicts of bash-guard old and new, (old rule, old answered), (new rule, new answered), the gate passes)
+ANSWERS = [('git push origin feat/x', 'allow', 'allow', OLD_ASK, NEW_ASK, True),
+           ('git push origin main', 'allow', 'allow', OLD_ASK, NEW_ASK, False),
+           ('git push origin feat/x; ssh h', 'allow', 'allow', OLD_ASK, NEW_ASK, False),
+           ('git push origin feat/x', 'ask', 'ask', (None, False), (None, True), True),
+           ('git stash drop; git push origin feat/x', 'ask', 'ask', (None, False), (None, True), True),
+           ('git push origin feat/x', 'allow', 'allow', OLD_ASK, OLD_ASK, True),
+           ('git push origin feat/x', 'allow', 'allow', OLD_ASK, (None, False), False),
+           ('git push origin main', 'block', 'block', OLD_ASK, (None, False), True),
+           ('git -C a push origin x', 'allow', 'allow', (None, False), ('Bash(git -C * push *)', False), True)]
+
+
+def rules_failures(tmp):
+    """A new block passes only for a class the run names and the command explains; the ask rules as the model reads
+    them; a prompt that the hook of PermissionRequest answers passes only for a push to a feature branch, an ask of a
+    rule that goes away with no answer fails, and new asks of a rule count in the median."""
+    bad = 0
+    rr = sys.modules['replay_rules']
+    row = lambda cmd, day='2026-10-02': ('p', 'Bash', cmd, '/Users/o/p', day)   # noqa: E731
+    base = dict(CTX, logged=[], left={})
+    for cmd, was, reason, named, want in BLOCKS:
+        key = hr.row_key('bash', row(cmd))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            got = hr.report('bash', spec.origin, spec.origin, [row(cmd)], {key: row(cmd)},
+                            {key: (was, 'x', 1.0, 'block', reason, 1.0)}, dict(base, block_classes=named), 0)
+        if got != want or want != ('named by --block-class: 1' in out.getvalue()):
+            bad += 1
+            print('FAIL gate %s for a new block with classes %s: %s' % (got, sorted(named), cmd))
+    path = os.path.join(tmp, 'settings.json')
+    with open(path, 'w', encoding='utf-8') as fh:
+        json.dump({'permissions': {'ask': ASK_RULES}}, fh)
+    rules = rr.load_rules(path)
+    for tool, cmd, want in RULES:
+        if rr.rule_ask(rules, tool, cmd) != want:
+            bad += 1
+            print('FAIL ask rule %s, not %s: %s %s' % (rr.rule_ask(rules, tool, cmd), want, tool, cmd))
+    for cmd, want in PUSHES:
+        if rr.feature_push(cmd) != want:
+            bad += 1
+            print('FAIL feature_push is not %s: %s' % (want, cmd))
+    sides = ((rules, None, path), (rules, os.path.join(tmp, 'push-allow.sh'), path))
+    for cmd, od, nd, old, new, want in ANSWERS:
+        key = hr.row_key('bash', row(cmd))
+        with contextlib.redirect_stdout(io.StringIO()):
+            got = hr.report('bash', spec.origin, spec.origin, [row(cmd)], {key: row(cmd)}, {key: (od, 'x', 1.0, nd, 'x', 1.0)},
+                            dict(base, rules={key: (old, new)}, sides=sides), 0)
+        if got != want:
+            bad += 1
+            print('FAIL gate %s with rules %s -> %s: %s' % (got, old, new, cmd))
+    # two new asks of a rule on the one working day: the median is over the limit
+    rows = [row('git -C a push origin x'), row('git -C b push origin x')]
+    keys = [hr.row_key('bash', r) for r in rows]
+    scan = {k: ((None, False), ('Bash(git -C * push *)', False)) for k in keys}
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        got = hr.report('bash', spec.origin, spec.origin, rows, dict(zip(keys, rows)),
+                        {k: ('allow', '', 1.0, 'allow', '', 1.0) for k in keys}, dict(base, rules=scan, sides=sides), 0)
+    if got or 'new asks  rule Bash(git -C * push *): 2' not in out.getvalue() or 'new asks 2 (median 2.0' not in out.getvalue():
+        bad += 1
+        print('FAIL two new asks of a rule in one day pass or are not listed')
+    # the hook of PermissionRequest counts for a side only when the settings of that side name it
+    guard = os.path.join(tmp, 'bash-guard.sh')
+    open(os.path.join(tmp, 'push-allow.sh'), 'w').close()
+    with open(path, 'w', encoding='utf-8') as fh:
+        json.dump({'permissions': {'ask': ASK_RULES}}, fh)
+    alone = rr.side(path, guard)[1]
+    with open(path, 'w', encoding='utf-8') as fh:
+        json.dump({'permissions': {'ask': ASK_RULES}, 'hooks': {'PermissionRequest': [
+            {'matcher': 'Bash', 'hooks': [{'type': 'command', 'command': '/x/hooks/push-allow.sh'}]}]}}, fh)
+    if alone is not None or rr.side(path, guard)[1] != os.path.join(tmp, 'push-allow.sh'):
+        bad += 1
+        print('FAIL the hook of PermissionRequest counts with no line in the settings, or does not count with one')
+    for text in ('not json', '[]', '{"permissions": {"ask": []}}', '{"permissions": {"ask": ["Read(x)"]}}'):
+        with open(path, 'w', encoding='utf-8') as fh:
+            fh.write(text)
+        try:
+            rr.load_rules(path)
+        except ValueError:
+            continue
+        bad += 1
+        print('FAIL settings that are %s give rules' % text)
+    return bad
+
+
 def main():
     bad = 0
     tmp = tempfile.mkdtemp(prefix='hook-replay-test-')
@@ -133,8 +274,9 @@ def main():
         bad += 1
         print('FAIL no line about calls with no command')
     bad += match_failures()
+    bad += rules_failures(tmp)
     shutil.rmtree(tmp, ignore_errors=True)
-    print('hook-replay gate: %d cases, %d failed' % (len(CASES), bad))
+    print('hook-replay gate: %d cases, %d failed' % (len(CASES) + len(BLOCKS) + len(RULES) + len(PUSHES) + len(ANSWERS), bad))
     return 1 if bad else 0
 
 

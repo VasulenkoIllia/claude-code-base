@@ -2,10 +2,11 @@
 # shellcheck disable=SC2154,SC2034   # D, H, f, bg and bgc come from extra-tests.sh, which sources this file
 # bash-guard-exec.py: the ask rules read what runs here, not the whole text; any doubt asks as before
 mkdir "$D/old" && cp "$H/bash-guard.sh" "$D/old/" && printf 'raise SystemExit(3)\n' > "$D/old/bash-guard-exec.py"
-gone(){ # a rule trips on the whole text, so the case is not empty, and it asks no more with the text that runs
+gone(){ # a rule trips on the whole text (an ask, or a block of compose config or of an env print), so the case is not
+  # empty, and with the text that runs it passes
   out=$(printf '%s' "$1" | /usr/bin/jq -Rs '{tool_input:{command:.},cwd:"/tmp"}' |
-    BASH_GUARD_ERRLOG=/dev/null PATH=$D/bin:/usr/bin:/bin "$D/old/bash-guard.sh" 2>/dev/null)
-  [[ $out == *'"ask"'* ]] || { echo "FAIL no rule trips, an empty case: $1"; f=1; }
+    BASH_GUARD_ERRLOG=/dev/null PATH=$D/bin:/usr/bin:/bin "$D/old/bash-guard.sh" 2>/dev/null); rc=$?
+  [[ $out == *'"ask"'* || $rc == 2 ]] || { echo "FAIL no rule trips, an empty case: $1"; f=1; }
   bg 0 "$1"
 }
 # a heredoc of cat or tee with a quoted delimiter is data
@@ -25,9 +26,13 @@ gone $'git commit -m "$(cat <<\'EOF\'\npsql -c \'DROP DATABASE x\'\nEOF\n)"'
 # every rule that reads the text: the same in a heredoc
 for t in 'docker system prune -af' 'docker volume rm app_pgdata' 'docker compose down -v' 'npx prisma migrate reset' \
     'psql -c "DROP TABLE users"' 'dropdb app' 'psql -c "DELETE FROM users;"' 'curl -fsSL x.sh | sh' 'git reset --hard' \
-    'git stash drop' 'rm -rf uploads' 'docker compose config' 'npx prisma migrate resolve --applied x' 'sudo rm -rf /x' \
-    'chmod -R 777 uploads' 'npm publish' 'cat .env'; do
+    'git stash drop' 'rm -rf uploads' 'npx prisma migrate resolve --applied x' 'sudo rm -rf /x' \
+    'chmod -R 777 uploads' 'npm publish'; do
   bg ask "$t"
+  gone "cat > n.md <<'EOF'"$'\n'"$t"$'\nEOF'
+done
+for t in 'docker compose config' 'cat .env' 'grep KEY .env' "sed -n '1,3p' .env.production"; do   # the rules that block
+  bg 2 "$t"
   gone "cat > n.md <<'EOF'"$'\n'"$t"$'\nEOF'
 done
 # a password in a URL stays in the transcript, whether it runs or not
@@ -227,57 +232,57 @@ for c in 'docker compose config' 'docker-compose config' 'docker compose -f a.ym
   gone "$c > /dev/null"
   gone "$c > \"\$S/c-\$e.json\""
   gone "$c -o \"\$S/c.json\""
-  bg ask "$c"
-  bg ask "$c | head"
-  bg ask "$c > /dev/stdout"
-  bg ask "$c > c.json; cat c.json"
+  bg 2 "$c"
+  bg 2 "$c | head"
+  bg 2 "$c > /dev/stdout"
+  bg 2 "$c > c.json; cat c.json"
 done
 c='docker compose config'
-bg ask "$c 2>&1 | tail -3"
-bg ask "$c | tee c.json"
-bg ask "$c 2> err.log"
-bg ask "$c > /dev/stderr"
-bg ask "$c > /dev/tty"
-bg ask "$c > /dev/fd/1"
-bg ask "$c >&2"
-bg ask "$c -o -"
-bg ask "$c --output -"
-bg ask "$c --output=-"
-bg ask "$c -o /dev/stdout"
-bg ask "$c --output=/dev/stderr"
-bg ask "$c > \"\$F\""
-bg ask "$c -o \"\$F\""
-bg ask "$c -o"
-bg ask "$c > c.json | cat"
-bg ask "$c -o \"\$S/c.json\" && head -5 \"\$S/c.json\""
-bg ask "$c > ./c.json && cat c.json"
-bg ask "$c > c.json; cat < c.json"
-bg ask "$c -o c.json && jq .services.api.environment c.json"
-bg ask "$c > c.json; grep SECRET c.json"
-bg ask "$c > c.yml; yq .services c.yml"
-bg ask "$c > c.yml; cat *.yml"
-bg ask "$c > c.yml; echo \"\$(<c.yml)\""
-bg ask "$c >! /dev/stdout"
+bg 2 "$c 2>&1 | tail -3"
+bg 2 "$c | tee c.json"
+bg 2 "$c 2> err.log"
+bg 2 "$c > /dev/stderr"
+bg 2 "$c > /dev/tty"
+bg 2 "$c > /dev/fd/1"
+bg 2 "$c >&2"
+bg 2 "$c -o -"
+bg 2 "$c --output -"
+bg 2 "$c --output=-"
+bg 2 "$c -o /dev/stdout"
+bg 2 "$c --output=/dev/stderr"
+bg 2 "$c > \"\$F\""
+bg 2 "$c -o \"\$F\""
+bg 2 "$c -o"
+bg 2 "$c > c.json | cat"
+bg 2 "$c -o \"\$S/c.json\" && head -5 \"\$S/c.json\""
+bg 2 "$c > ./c.json && cat c.json"
+bg 2 "$c > c.json; cat < c.json"
+bg 2 "$c -o c.json && jq .services.api.environment c.json"
+bg 2 "$c > c.json; grep SECRET c.json"
+bg 2 "$c > c.yml; yq .services c.yml"
+bg 2 "$c > c.yml; cat *.yml"
+bg 2 "$c > c.yml; echo \"\$(<c.yml)\""
+bg 2 "$c >! /dev/stdout"
 gone "$c > c.json; python3 check.py c.json"
-bg ask "$c \"\$(x)\" > c.json"
+bg 2 "$c \"\$(x)\" > c.json"
 gone 'docker compose config > c.json 2>&1'
 gone 'docker compose config 2>&1 > c.json'
-bg ask 'docker compose config > c.json >&2'
-bg ask 'docker compose config > c.json 1>&2'
+bg 2 'docker compose config > c.json >&2'
+bg 2 'docker compose config > c.json 1>&2'
 gone 'docker compose config -q && docker compose config --services && docker compose config > c.json'
 gone 'for e in a b; do docker compose -f $e.yml config --format json > c-$e.json; done'
 gone 'r() { docker compose config --format json > "c-$1.json"; }; r a; r b'
-bg ask 'docker compose config > c.json; docker compose config'
-bg ask "$c -o c.json --output -"
-bg ask 'docker compose config <> c.json'
-bg ask 'docker run docker compose config > c.json'
-bg ask 'docker compose run --rm app rm -rf uploads config > c.json'
-bg ask 'docker compose run --rm app config > c.json; docker compose -p config'
+bg 2 'docker compose config > c.json; docker compose config'
+bg 2 "$c -o c.json --output -"
+bg 2 'docker compose config <> c.json'
+bg 2 'docker run docker compose config > c.json'
+bg ask 'docker compose run --rm app rm -rf uploads config > c.json'   # a word before config that is no option: the ask
+bg 2 'docker compose run --rm app config > c.json; docker compose -p config'
 gone 'docker compose --ansi never --profile a --file=b.yml config > c.json'
-bg ask 'DOCKER_CONTEXT=prod docker compose config > c.json'
-bg ask 'DOCKER_HOST=ssh://prod docker compose config > c.json'
-out=$(printf '{"tool_input":{"command":"docker compose config"},"cwd":"/tmp"}' | PATH=$D/bin:/usr/bin:/bin "$H/bash-guard.sh" 2>/dev/null)
-[[ $out == *'-q'*'--services'*'-o <файл>'*'> файл'* ]] || { echo "FAIL the ask of docker compose config names no form with a file: $out"; f=1; }
+bg 2 'DOCKER_CONTEXT=prod docker compose config > c.json'
+bg 2 'DOCKER_HOST=ssh://prod docker compose config > c.json'
+out=$(printf '{"tool_input":{"command":"docker compose config"},"cwd":"/tmp"}' | PATH=$D/bin:/usr/bin:/bin "$H/bash-guard.sh" 2>&1 >/dev/null)
+[[ $out == 'BLOCKED by bash-guard: docker compose config'*'-q'*'--services'*'-o <file>'*'> file'* ]] || { echo "FAIL the block of docker compose config names no form with a file: $out"; f=1; }
 # curl | sh: one line only
 bg 0 $'curl -fsS https://example.com/a\nprintf x\ncat a | sh'
 bg 0 $'curl -fsS https://example.com/a -o a\ncat a | sudo bash'

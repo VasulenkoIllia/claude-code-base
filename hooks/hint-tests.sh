@@ -15,8 +15,9 @@ push), $NEXT"
 COMPACTED="session-hint: the context was just compacted. Відповідай українською, також wrap_up, плани, квізи. If the next \
 step is a different task or feature, $NEXT"
 OPENED="session-hint: PR opened. Start one background call, not a poll: \`gh pr checks <number> --watch\` with \
-run_in_background (the app wakes you only on failures, not on green). When it ends green, end the turn with the merge \
-decision (app: wrap_up with reply buttons; CLI: a question)."
+run_in_background (the app wakes you only on failures, not on green). When it ends green, say in one line what gets \
+merged into which branch and run \`gh pr merge\` right away: its permission prompt is the user's merge decision, so no \
+question and no reply buttons before it (in a session that shows no permission prompts, ask before the merge instead)."
 
 # bash_inp <event> <command> [output] [jq filter]: PostToolUse-shaped stdin JSON; start_inp <source> [jq filter]
 bash_inp() { /usr/bin/jq -nc --arg e "$1" --arg c "$2" --arg o "${3-}" \

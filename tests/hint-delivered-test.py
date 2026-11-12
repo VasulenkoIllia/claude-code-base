@@ -2,7 +2,8 @@
 """hint-delivered-test: tests/hint-delivered.py as a command on made-up transcripts in a temp HOME (offline, no real
 data): every outcome and report line, the exit codes 0, 1, 2 and 3, resumed copies, a pending call next to a line
 still being written and in an idle file (where an open compaction stays pending), a hint twice, subagent records and
-files, an older session with problems, a file not changed since --since, more problems than are printed, an audit
+files, the hint after a subagent's own compaction (not gated) next to the texts that stay extra there, an older session
+with problems, a file not changed since --since, more problems than are printed, an audit
 project with and without --include-audit, the default --since from the setup manifest, a --since before it, a local
 --since in another time zone, an unreadable file, no data, usage errors, the check itself broken. verify.sh runs it.
 
@@ -64,8 +65,15 @@ def say(sec):
     return rec('assistant', sec, message={'role': 'assistant', 'content': [{'type': 'text', 'text': 'ok'}]})
 
 
-def boundary(sec):
-    return rec('system', sec, subtype='compact_boundary')
+def boundary(sec, sidechain=False, **kw):
+    return rec('system', sec, sidechain, subtype='compact_boundary', **kw)
+
+
+def sub_compaction(sec, *texts, agent='a'):
+    """A subagent's own compaction and the SessionStart hint Claude Code attaches after it (no agent_id in the hook's
+    input there, so session-hint prints)."""
+    return [boundary(sec, True, agentId=agent),
+            dict(hint_rec(sec + 1, 'SessionStart', 'SessionStart', *texts, sidechain=True), agentId=agent)]
 
 
 PR_URL = 'https://github.com/o/r/pull/1'
@@ -145,6 +153,25 @@ def transcripts():
                                     sidechain=True)],
         'subagent-older': [rec('user', -10, True, message={'role': 'user', 'content': 'go'}),
                            hint_rec(75, 'PostToolUse:Bash', 'a2', TEXT['PostToolUse'], sidechain=True)],
+        # the live case of 2026-11-11: a subagent whose own context was compacted gets the compaction hint: not extra
+        # (in a subagent file agentId does not matter: here the compaction record has none)
+        'subagent-compacted': [rec('user', 70, True, message={'role': 'user', 'content': 'go'}, agentId='a'),
+                               boundary(72, True),
+                               *sub_compaction(72, '## an app hook', TEXT['SessionStart'])[1:]],
+        # what stays extra in a subagent: a compaction hint with no compaction before it, twice, with another text, and
+        # a push hint also after a compaction (PostToolUse carries agent_id)
+        'subagent-compacted-extra': [
+            rec('user', 70, True, message={'role': 'user', 'content': 'go'}, agentId='a'),
+            dict(hint_rec(71, 'SessionStart', 'SessionStart', TEXT['SessionStart'], sidechain=True), agentId='a'),
+            *sub_compaction(72, TEXT['SessionStart'], TEXT['SessionStart']),
+            *sub_compaction(74, TEXT['SessionStart'][:-1]),
+            dict(hint_rec(76, 'PostToolUse:Bash', 'a3', TEXT['PostToolUse'], sidechain=True), agentId='a')],
+        # older Claude Code: subagent records in the main file. Each subagent's compaction is its own: two subagents
+        # compacted side by side get their hints in the other order, a third one has a hint and no compaction (extra)
+        'sidechain-compacted': settled + [
+            boundary(50, True, agentId='b'), boundary(51, True, agentId='c'),
+            *[dict(hint_rec(52 + i, 'SessionStart', 'SessionStart', TEXT['SessionStart'], sidechain=True), agentId=a)
+              for i, a in enumerate('cbd')]],
         'many': [hi, *[r for i in range(21) for r in push_recs(100 + 2 * i, 'm%d' % i, 'git push')], say(150)],
         'missed': missed, 'locked': missed,   # the locked one is written with no permissions
         # results under another key: push calls the reader cannot judge
@@ -176,10 +203,11 @@ def header(main, sub, bad=0, since=SINCE, utc='2026-01-01T00:00:00', audit=0, ba
             'files skipped, %d unreadable lines, %d unreadable files' % (since, utc, main, sub, audit, bad, bad_files))
 
 
-def group_line(group, push=(0, 0, 0, 0), compaction=(0, 0, 0, 0), sub=0, errors=0):
-    """push and compaction: (delivered, missing, pending, extra)."""
+def group_line(group, push=(0, 0, 0, 0), compaction=(0, 0, 0, 0), sub=0, errors=0, sub_own=0):
+    """push and compaction: (delivered, missing, pending, extra); sub_own: hints after a subagent's own compaction."""
     return ('%-8s push: delivered %d, missing %d, pending %d, extra %d; compaction: delivered %d, missing %d, pending '
-            '%d, extra %d; subagent extra %d; errors %d' % (group, *push, *compaction, sub, errors))
+            '%d, extra %d; subagent extra %d, own compaction (not gated) %d; errors %d' % (
+                group, *push, *compaction, sub, sub_own, errors))
 
 
 def sessions(checked, older):
@@ -274,6 +302,20 @@ CASES = [
           'older': group_line('older', (1, 1, 0, 0), sub=1, errors=1), 'time': TIME0,
           'not attributed': unattributed(2), 'WARN': [WARN_NO_RUNS, warn_older(extra=1)], 'problem': 6,
           'gate': gate(2, 1, 0, 0, 6, 0, 'FAIL')}, 1),
+    case('subagent-compacted', {'clean': [('sess-clean.jsonl', 'clean'),
+                                          ('sess-clean/subagents/agent-a.jsonl', 'subagent-compacted')]},
+         ['--since', SINCE],
+         {**CLEAN, '==': header(2, 1), 'checked': group_line('checked', (1, 0, 0, 0), (1, 0, 0, 0), sub_own=1)}, 0),
+    case('subagent-compacted-extra', {'clean': [('sess-clean.jsonl', 'clean'),
+                                                ('sess-clean/subagents/agent-a.jsonl', 'subagent-compacted-extra')]},
+         ['--since', SINCE],
+         {**CLEAN, '==': header(2, 1), 'checked': group_line('checked', (1, 0, 0, 0), (1, 0, 0, 0), sub=4, sub_own=1),
+          'problem': 4, 'problem 1': 'problem  extra    subagent                 -p-clean                                 '
+                                     'sess-cle  2026-01-01T00:01:11Z',
+          'gate': gate(1, 1, 0, 0, 4, 0, 'FAIL')}, 1),
+    case('sidechain-compacted', {'side': [('sess-side.jsonl', 'sidechain-compacted')]}, ['--since', SINCE],
+         {**CLEAN, 'seen': seen(1, 1, 1, 1, 3, 3), 'checked': group_line('checked', (1, 0, 0, 0), (1, 0, 0, 0), sub=1, sub_own=2),
+          'problem': 1, 'gate': gate(1, 1, 0, 0, 1, 0, 'FAIL')}, 1),
     case('older-problems', {**CLEAN_FILES, 'older-extra': [('sess-oldx.jsonl', 'older-extra')]}, ['--since', SINCE],
          {**CLEAN, 'older': group_line('older', (1, 0, 0, 1), errors=1),
           'WARN': [warn_older(missing=0, extra=1, errors=1)]}, 0, older=False),

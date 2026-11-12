@@ -4,6 +4,7 @@ name: silent-failure-hunter
 description: Reviews code changes for silent failures - swallowed errors, empty catch blocks, fallbacks that hide failures, missing timeouts. Use for integrations, bots, parsers, webhooks and queue code.
 tools: Read, Grep, Glob, Bash
 model: sonnet
+effort: xhigh
 color: yellow
 ---
 

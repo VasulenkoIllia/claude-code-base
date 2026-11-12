@@ -86,7 +86,7 @@ COMMIT_HEAD = re.compile(r"^\[[^\]\n]+ [0-9a-f]{7,40}\]", re.M)  # "[main 1a2b3c
 COMMIT_STAT = re.compile(r"(\d+) insertions?\(\+\)|(\d+) deletions?\(-\)")
 LIGHT_LINES = 50  # a commit with at most this many changed lines and no DB files is Light: no react-reviewer
 PRELOAD = {"database-reviewer": "database-migrations", "security-reviewer": "security-review"}  # agent -> skills:
-CONDITIONAL = ("docker-patterns", "api-design")  # skills with paths: in frontmatter, listed once a matching file is touched
+CONDITIONAL = ("docker-patterns",)  # skills with paths: in frontmatter, listed once a matching file is touched
 PRELOAD_MARK = re.compile(r"<command-name>([^<]+)</command-name>\s*<skill-format>true</skill-format>")
 # the language of what the model writes to the owner (claude_metrics/language.py): chat text from MIN_CHAT_CHARS on, and
 # code, links, paths and file names are no words, as in the one-off counts of 26.10 and 30.10; but they took more Latin

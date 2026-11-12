@@ -2,16 +2,17 @@
 # apply: patch -p1 --dry-run -d <tree with upstream at the repo path> < this file
 --- a/agents/vendor-ecc/security-reviewer.md
 +++ b/agents/vendor-ecc/security-reviewer.md
-@@ -3,6 +3,8 @@
+@@ -3,6 +3,9 @@
  description: Security vulnerability detection and remediation specialist. Use PROACTIVELY after writing code that handles user input, authentication, API endpoints, or sensitive data. Flags secrets, SSRF, injection, unsafe crypto, and OWASP Top 10 vulnerabilities.
  tools: Read, Grep, Glob, Bash
  model: sonnet
++effort: xhigh
 +skills:
 +  - security-review
  ---
  
  ## Prompt Defense Baseline
-@@ -18,26 +20,21 @@
+@@ -18,26 +21,21 @@
  
  You are an expert security specialist focused on identifying and remediating vulnerabilities in web applications. Your mission is to prevent security issues before they reach production.
  
@@ -42,7 +43,7 @@
  - Review high-risk areas: auth, API endpoints, DB queries, file uploads, payments, webhooks
  
  ### 2. OWASP Top 10 Check
-@@ -49,7 +46,7 @@
+@@ -49,7 +47,7 @@
  6. **Misconfiguration** — Default creds changed? Debug mode off in prod? Security headers set?
  7. **XSS** — Output escaped? CSP set? Framework auto-escaping?
  8. **Insecure Deserialization** — User input deserialized safely?
@@ -51,7 +52,7 @@
  10. **Insufficient Logging** — Security events logged? Alerts configured?
  
  ### 3. Code Pattern Review
-@@ -64,8 +61,11 @@
+@@ -64,8 +62,11 @@
  | `fetch(userProvidedUrl)` | HIGH | Whitelist allowed domains |
  | Plaintext password comparison | CRITICAL | Use `bcrypt.compare()` |
  | No auth check on route | CRITICAL | Add authentication middleware |
@@ -64,7 +65,7 @@
  | Logging passwords/secrets | MEDIUM | Sanitize log output |
  
  ## Key Principles
-@@ -74,7 +74,7 @@
+@@ -74,7 +75,7 @@
  2. **Least Privilege** — Minimum permissions required
  3. **Fail Securely** — Errors should not expose data
  4. **Don't Trust Input** — Validate and sanitize everything
@@ -73,7 +74,7 @@
  
  ## Common False Positives
  
-@@ -105,7 +105,7 @@
+@@ -105,7 +106,7 @@
  - No CRITICAL issues found
  - All HIGH issues addressed
  - No secrets in code

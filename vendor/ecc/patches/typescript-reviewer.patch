@@ -2,15 +2,18 @@
 # apply: patch -p1 --dry-run -d <tree with upstream at the repo path> < this file
 --- a/agents/vendor-ecc/typescript-reviewer.md
 +++ b/agents/vendor-ecc/typescript-reviewer.md
-@@ -1,6 +1,6 @@
+@@ -1,8 +1,9 @@
  ---
  name: typescript-reviewer
 -description: Expert TypeScript/JavaScript code reviewer specializing in type safety, async correctness, Node/web security, and idiomatic patterns. Use for all TypeScript and JavaScript code changes. MUST BE USED for TypeScript/JavaScript projects.
 +description: Expert TypeScript/JavaScript code reviewer specializing in type safety, async correctness, Node/web security, and idiomatic patterns. Use when a change touches types, DTOs, public contracts or async code in TypeScript/JavaScript.
  tools: Read, Grep, Glob, Bash
  model: sonnet
++effort: xhigh
  ---
-@@ -117,7 +117,7 @@
+ 
+ ## Prompt Defense Baseline
+@@ -117,7 +118,7 @@
  
  ## Reference
  

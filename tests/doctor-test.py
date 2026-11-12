@@ -11,10 +11,11 @@ each uuid once, nothing older than the window or from a file not changed in it, 
 projects than it names, the same transcripts through a window with the failure and one without, an unreadable
 transcript, a line that cannot be parsed, attachments of an unknown shape, a reader that sees no hook attachment, a
 broken tests/hook_failures.py that costs only its line; the WARN lines of the hooks' error logs, internal errors apart
-from ShapeDrift, an unreadable log; project CLAUDE.md, AGENTS.md and STATUS over 30 KB or unreadable, a folder of
-projects with no such files or none at all; the docs lines of the projects (STATUS length and its archive, a big .md, a
-README behind the code, active projects with no instructions or card, the old template); the lines of the docs repo of
-docs-sync and its error log; the line of the scan inside a commit; and the exit code, which no WARN changes. verify.sh
+from ShapeDrift, an unreadable log; project CLAUDE.md and AGENTS.md over 30 KB, these and STATUS unreadable, a folder
+of projects with no such files or none at all; the docs lines of the projects (a big .md, a README behind the code,
+active projects with no instructions or card, the old template, and one "docs state" line per project: a STATUS over
+8 KB and its archive, and in an active project a big journal, a doc of an area behind its code, no STATUS, big memory
+files, a card with no «З чого почати»; a broken scripts/docs_state.py or no library for it costs only its line); the lines of the docs repo of docs-sync and its error log; the line of the scan inside a commit; and the exit code, which no WARN changes. verify.sh
 runs it.
 
 Run (from the repo root): python3 -I tests/doctor-test.py -> the last line "doctor test: N cases, F failed"; exit 0
@@ -34,6 +35,8 @@ import tempfile
 TESTS = os.path.dirname(os.path.abspath(__file__))
 DOCTOR = os.path.join(os.path.dirname(TESTS), 'scripts', 'doctor.sh')
 HOOKS = os.path.join(os.path.dirname(TESTS), 'hooks')
+sys.path.insert(0, TESTS)   # -I drops the script folder from sys.path
+from doctor_origin_checks import docs_origin_fails  # noqa: E402
 HINT_DELIVERED = shlex.quote(os.path.join(TESTS, 'hint-delivered.py'))   # as the FAIL WARN names it
 _spec = importlib.util.spec_from_file_location('hint_delivered_test', os.path.join(TESTS, 'hint-delivered-test.py'))
 hdt = importlib.util.module_from_spec(_spec)
@@ -366,9 +369,10 @@ def scan_probe_fails(tmp):
 
 
 def state_file_fails(tmp, data):
-    """The sizes of project files: over the limit at each known place, a project name with a space, unreadable, a link
+    """The sizes of project files: CLAUDE.md and AGENTS.md over the limit, a project name with a space, unreadable, a link
     to nowhere, a FIFO (must not hang); exactly 30 KB, a file deeper in the project and another name say nothing. A
-    folder with no such file and no folder at all are a WARN too: they must not read as small files."""
+    STATUS is judged by its own limit of 8 KB, at each known place, in the "docs state" line of its project. A folder
+    with no such file and no folder at all are a WARN too: they must not read as small files."""
     env = sandbox(os.path.join(tmp, 'state home'), CLEAN, {}, INSTALLED, data)
     root = env['PROJECTS_DIR']
     over, limit = 30 * 1024 + 1, 30 * 1024
@@ -389,9 +393,10 @@ def state_file_fails(tmp, data):
     over, unreadable = '  WARN: project file over 30 KB: %s: %d KB', '  WARN: project file not readable: %s'
     want = [unreadable % 'c/CLAUDE.md', over % ('demo ui/CLAUDE.md', 51), over % ('a/AGENTS.md', 31)]
     want += [unreadable % 'b/AGENTS.md'] if os.geteuid() else []
-    want += [over % ('a/STATUS.md', 31), unreadable % 'b/STATUS.md', over % ('a/docs/STATUS.md', 31),
-             over % ('a/.claude/state/STATUS.md', 146)]
-    fails = check('state-files', run(env), PASS, want, 1, env['CLAUDE_HOME'])
+    want += [unreadable % 'b/STATUS.md',
+             '  WARN: docs state: a: STATUS STATUS.md 31 KB (archive: none); STATUS docs/STATUS.md 31 KB (archive: none); '
+             'STATUS .claude/state/STATUS.md 146 KB (archive: none)']
+    fails = check('state-files', run(env), PASS, want, 2, env['CLAUDE_HOME'])
     none = sandbox(os.path.join(tmp, 'none home'), CLEAN, {}, INSTALLED, data)
     os.remove(os.path.join(none['PROJECTS_DIR'], 'p', 'CLAUDE.md'))
     for name, folder in (('no-project-files', none['PROJECTS_DIR']), ('no-projects-folder', os.path.join(tmp, 'no folder'))):
@@ -448,14 +453,18 @@ def stack_fails(tmp, data):
 
 
 def docs_fails(tmp, data):
-    """The docs lines on made-up projects: STATUS over 60 lines with an archive next to it, under its folder or none (60
-    lines say nothing, 61 with no newline at the end do); an .md over 200 KB, not in an archive path (an "archiver" is
+    """The docs lines on made-up projects: an .md over 200 KB, not in an archive path (an "archiver" is
     none), node_modules or .claude/worktrees (200 KB says nothing); a README (.md or .rst) 10 commits and over 21 days
     behind HEAD (9 commits or 21 days say nothing); active projects, a commit or a session with a record of the last 30
     days (also in a worktree of the project, or before a last record over 64 KB; an old session that only got records
     with no time, or a subagent's, is none), with no instruction file or no card (.claude/CLAUDE.md holds one too); the
     old template, active or not; a repo git cannot read; a transcript with no time at all; a worktree copy and a link
-    skipped. Then the summary and one legend."""
+    skipped. The "docs state" line of a project: a STATUS over 8 KB (one long line counts, 8 KB says nothing) with an
+    archive next to it, under its folder or none, in any project; and only in an active one: a journal over 40 KB by
+    its name (40 KB, an archive path, a dated note, CHANGELOG, another name and node_modules say nothing), a deploy doc
+    10 commits of its area and over 21 days behind, tracked or outside git (9 commits or 21 days say nothing), no STATUS
+    (also with a card and a session but no commit), a memory
+    file over 5 KB (5 KB says nothing), a card with no «З чого почати». Then the summary and one legend."""
     env = sandbox(os.path.join(tmp, 'docs home'), CLEAN, {}, INSTALLED, data)
     root, claude = env['PROJECTS_DIR'], env['CLAUDE_HOME']
     now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
@@ -490,19 +499,26 @@ def docs_fails(tmp, data):
         if mtime is not None:
             os.utime(path, (mtime, mtime))
 
-    lines = lambda n: ''.join('line %d\n' % i for i in range(n))
-    card, day = '## Розмір (підтверджено власником 01.01.2026)\n', 86400
-    write('p01 status/STATUS.md', lines(61)[:-1])
-    write('p01 status/.claude/state/STATUS.md', lines(61))
-    write('p01 status/docs/STATUS.md', lines(60))
-    for rel, n in (('STATUS.md', 61), ('STATUS-archive.md', 1), ('docs/STATUS.md', 70),
-                   ('docs/_work/STATUS-2026-09-16-archive.md', 1)):
-        write('p02 archived/' + rel, lines(n))
-    for rel, kb in (('docs/decisions.md', 200 * 1024 + 1), ('CHANGELOG.md', 250 * 1024), ('notes.md', 200 * 1024),
+    kb, day = 1024, 86400
+    bare_card = '## Розмір (підтверджено власником 01.01.2026)\n'
+    card = '## З чого почати\n- Стан: `.claude/state/STATUS.md`\n\n' + bare_card
+
+    def carded(proj, rel='CLAUDE.local.md', text=card):   # a card and a small STATUS: no item of "docs state"
+        write(proj + '/' + rel, text)
+        write(proj + '/.claude/state/STATUS.md', 'state\n')
+
+    write('p01 status/STATUS.md', 'x' * (8 * kb + 1))
+    write('p01 status/.claude/state/STATUS.md', 'x' * 9000)
+    write('p01 status/docs/STATUS.md', 'x' * (8 * kb))
+    for rel, size in (('STATUS.md', 8 * kb + 1), ('STATUS-archive.md', 1), ('docs/STATUS.md', 10 * kb),
+                      ('docs/_work/STATUS-2026-09-16-archive.md', 1)):
+        write('p02 archived/' + rel, 'x' * size)
+    for rel, size in (('docs/decisions.md', 200 * 1024 + 1), ('CHANGELOG.md', 250 * 1024), ('notes.md', 200 * 1024),
+                    ('docs/progress.md', 50 * 1024),   # a journal in a project with no work in 30 days: no item
                     ('docs/archive/old.md', 300 * 1024), ('docs/Archive-2025.md', 300 * 1024),
                     ('docs/archived/plan.md', 300 * 1024), ('docs/archiver-notes.md', 210 * 1024),
                     ('node_modules/pkg/README.md', 300 * 1024), ('.claude/worktrees/x/big.md', 300 * 1024)):
-        write('p03 journals/' + rel, 'x' * kb)
+        write('p03 journals/' + rel, 'x' * size)
     readme = {'p04 stale readme': (40, [now - 15 * day + 3600 * i for i in range(10)]),
               'p05 nine commits': (40, [now - 15 * day + 3600 * i for i in range(9)]),
               'p06 lag 21': (26, [now - 26 * day + 3600 * (i + 1) for i in range(9)] + [now - 5 * day + 100]),
@@ -511,7 +527,7 @@ def docs_fails(tmp, data):
         commit(proj, 'README.rst' if proj.endswith('rst') else 'README.md', now - age * day)
         for i, at in enumerate(times):
             commit(proj, 'src/%d.ts' % i, at)
-        write(proj + '/CLAUDE.local.md', card)
+        carded(proj)
     lag = (readme['p04 stale readme'][1][-1] - (now - 40 * day)) // day
     commit('p07 bare', 'main.py', now - day)
     write('p08 sessions/notes.txt', 'x\n')
@@ -522,13 +538,13 @@ def docs_fails(tmp, data):
     commit('p09 no card', 'app.ts', now - day)
     write('p09 no card/CLAUDE.md', '# Rules\n')
     commit('p10 carded', 'app.ts', now - day)
-    write('p10 carded/CLAUDE.local.md', card)
+    carded('p10 carded')
     write('p11 old sleeping/AGENTS.md', '# Project Agent Operating Standard\n')
     commit('p12 old active', 'app.ts', now - day)
     write('p12 old active/AGENTS.md', '# Project Agent Operating Standard\n')
-    write('p12 old active/CLAUDE.local.md', card)
+    carded('p12 old active')
     write('p13 worktree copy/.git', 'gitdir: /nonexistent\n')
-    write('p13 worktree copy/STATUS.md', lines(61))
+    write('p13 worktree copy/STATUS.md', 'x' * (8 * kb + 1))
     os.symlink(os.path.join(root, 'p01 status'), os.path.join(root, 'p14 link'))
     write('p15 old session/notes.txt', 'x\n')
     transcript('p15 old session', '/s.jsonl', now - 60 * day)
@@ -539,37 +555,120 @@ def docs_fails(tmp, data):
     commit('p17 broken head', 'app.ts', now - day)
     write('p17 broken head/.git/HEAD', 'not a ref\n')
     commit('p19 dot claude', 'app.ts', now - day)
-    write('p19 dot claude/.claude/CLAUDE.md', card)
+    carded('p19 dot claude', '.claude/CLAUDE.md')
     commit('p20 broken index', 'app.ts', now - day)
     write('p20 broken index/.git/index', 'not an index\n')
     git('p21 unborn', ['init', '-q'])   # no commit yet: no failure
-    write('p21 unborn/CLAUDE.local.md', card)
+    carded('p21 unborn')
     commit('p22 empty branch', 'app.ts', now - day)
     write('p22 empty branch/.git/refs/heads/main', '')
     commit('p23 lost object', 'README.md', now - 40 * day)
     commit('p23 lost object', 'app.ts', now - day)
     head = git('p23 lost object', ['rev-parse', 'HEAD']).strip()
     os.remove(os.path.join(root, 'p23 lost object', '.git', 'objects', head[:2], head[2:]))
-    status, md = '  WARN: STATUS over 60 lines: %s: %d lines, archive: %s', '  WARN: md file over 200 KB: %s: %d KB'
+    commit('p24 journals', 'app.ts', now - day)
+    carded('p24 journals')
+    for rel, size in (('docs/progress.md', 40 * kb + 1), ('docs/dev-plan.md', 60 * kb), ('docs/tracker.md', 40 * kb),
+                      ('docs/archive/progress.md', 50 * kb), ('docs/notes.md', 50 * kb), ('CHANGELOG.md', 50 * kb),
+                      ('docs/audit-2026-10-13.md', 50 * kb), ('docs/STATUS.md', 50 * kb),   # a STATUS: its own item, no journal
+                      ('node_modules/pkg/decisions.md', 50 * kb)):
+        write('p24 journals/' + rel, 'x' * size)
+    for proj, doc, n in (('p25 area', 'docs/deployment.md', 10), ('p26 area nine', 'docs/deployment.md', 9),
+                         ('p28 area outside git', None, 10)):
+        if doc:
+            commit(proj, doc, now - 40 * day)
+        for i in range(n):
+            commit(proj, 'Dockerfile', now - 15 * day + 3600 * i)
+        carded(proj)
+    commit('p27 area lag 21', 'docs/deployment.md', now - 26 * day)   # 11 commits of the area, the newest 21 days after
+    for at in [now - 26 * day + 3600 * (i + 2) for i in range(10)] + [now - 5 * day + 100]:
+        commit('p27 area lag 21', 'Dockerfile', at)
+    carded('p27 area lag 21')
+    write('p28 area outside git/docs/deploy.md', 'how to deploy\n')   # docs outside git: the file time counts
+    os.utime(os.path.join(root, 'p28 area outside git/docs/deploy.md'), (now - 40 * day, now - 40 * day))
+    commit('p29 no status', 'app.ts', now - day)
+    write('p29 no status/CLAUDE.local.md', card)
+    commit('p30 memory', 'app.ts', now - day)
+    carded('p30 memory')
+    memory = os.path.join(claude, 'projects', re.sub('[^A-Za-z0-9]', '-', os.path.join(root, 'p30 memory')), 'memory')
+    os.makedirs(memory)
+    for rel, size in (('MEMORY.md', 100), ('state.md', 5 * kb + 1), ('fact.md', 5 * kb)):
+        with open(os.path.join(memory, rel), 'w', encoding='utf-8') as fh:
+            fh.write('x' * size)
+    commit('p31 no start', 'app.ts', now - day)
+    carded('p31 no start', text=bare_card)
+    write('p32 card sessions/CLAUDE.local.md', card)   # a card and no commit: active by its session alone
+    transcript('p32 card sessions', '/a.jsonl', now - day)
+    state, md ='  WARN: docs state: %s: %s', '  WARN: md file over 200 KB: %s: %d KB'
+    area = 'deploy doc %s behind its area by 10 commits and 25 days'
     bare = '  WARN: no instruction file in an active project: %s (%d commits, %d sessions in 30 days)'
     behind = '  WARN: README behind the code: %s: last changed %d days and 10 commits before HEAD'
-    want = [status % ('p01 status/STATUS.md', 61, 'none'), status % ('p01 status/.claude/state/STATUS.md', 61, 'none'),
-            status % ('p02 archived/STATUS.md', 61, 'STATUS-archive.md'),
-            status % ('p02 archived/docs/STATUS.md', 70, 'docs/_work/STATUS-2026-09-16-archive.md'),
+    want = [state % ('p01 status', 'STATUS STATUS.md 9 KB (archive: none); STATUS .claude/state/STATUS.md 9 KB (archive: '
+                     'none)'),
+            state % ('p02 archived', 'STATUS STATUS.md 9 KB (archive: STATUS-archive.md); STATUS docs/STATUS.md 10 KB '
+                     '(archive: docs/_work/STATUS-2026-09-16-archive.md)'),
             md % ('p03 journals/CHANGELOG.md', 250), md % ('p03 journals/docs/archiver-notes.md', 210),
             md % ('p03 journals/docs/decisions.md', 201), behind % ('p04 stale readme/README.md', lag),
-            bare % ('p07 bare', 1, 0), bare % ('p08 sessions', 0, 2),
+            bare % ('p07 bare', 1, 0), state % ('p07 bare', 'no STATUS'),
+            bare % ('p08 sessions', 0, 2), state % ('p08 sessions', 'no STATUS'),
             '  WARN: no card («## Розмір») in an active project: p09 no card (1 commits, 0 sessions in 30 days)',
-            bare % ('p16 big record', 0, 1), behind % ('p18 readme rst/README.rst', lag),
+            state % ('p09 no card', 'no STATUS'),
+            bare % ('p16 big record', 0, 1), state % ('p16 big record', 'no STATUS'),
+            behind % ('p18 readme rst/README.rst', lag),
+            state % ('p24 journals', 'STATUS docs/STATUS.md 50 KB (archive: none); journal docs/dev-plan.md 60 KB; journal '
+                     'docs/progress.md 41 KB'),
+            state % ('p25 area', area % 'docs/deployment.md'), state % ('p28 area outside git', area % 'docs/deploy.md'),
+            state % ('p29 no status', 'no STATUS'), state % ('p30 memory', '1 memory files over 5 KB'),
+            state % ('p31 no start', 'no «З чого почати» in the card'), state % ('p32 card sessions', 'no STATUS'),
             '  WARN: old template («Project Agent Operating Standard») in 2 projects; of them active in 30 days: p12 old '
             'active', '  WARN: git cannot read the repo (README and commits not checked; git -C <folder> status says why): '
             'p17 broken head, p20 broken index, p22 empty branch, p23 lost object',
             '  WARN: transcripts of 30 days with no record time (a new Claude Code format?): 1, their sessions not counted']
     p = subprocess.run(['/bin/bash', DOCTOR, '--live', '--skip-tests'], env=env, capture_output=True, text=True, timeout=120)
     fails = check('docs', p, PASS, want, 1, claude)
-    summary = ('  docs: 22 project folders, skipped 2 (link, worktree copy); STATUS over 60 lines 4, md over 200 KB 3, '
-               'README behind 2, active without instructions 3, without a card 1, old template 2, git failed 4')
+    summary = ('  docs: 31 project folders, skipped 2 (link, worktree copy); STATUS over 8 KB 5, journals over 40 KB 2, '
+               'area docs behind 2, md over 200 KB 3, README behind 2, active without instructions 3, without a card 1, '
+               'without «З чого почати» 1, without STATUS 6, with memory files over 5 KB 1, old template 2, git failed 4')
     return fails + ([] if summary in p.stdout.splitlines() else ['FAIL docs summary: want %r' % summary])
+
+
+def docs_helper_fails(tmp, data):
+    """scripts/docs_state.py on a copy of the base that lies among the projects, with two active projects (a session
+    each): the base itself (no instruction file is no WARN for it, no STATUS is) and one with no card. A helper that
+    breaks costs one WARN that names both, their other items stay; with no hooks/doc_reminder_lib.py doctor says so in
+    a plain line and does not call the helper. The exit code stays 0. One list of fails per case."""
+    out = []
+    for name, with_lib in (('docs-helper-broken', True), ('docs-helper-no-lib', False)):
+        env = sandbox(os.path.join(tmp, 'home ' + name), CLEAN, {}, INSTALLED, data)
+        repo, now = os.path.join(env['PROJECTS_DIR'], 'base repo'), datetime.datetime.now(datetime.timezone.utc)
+        os.makedirs(os.path.join(repo, 'tests'))
+        shutil.copytree(os.path.dirname(DOCTOR), os.path.join(repo, 'scripts'))
+        for f in REAL:
+            shutil.copy2(os.path.join(TESTS, f), os.path.join(repo, 'tests', f))
+        with open(os.path.join(repo, 'scripts', 'docs_state.py'), 'w', encoding='utf-8') as fh:
+            fh.write("raise SystemExit('broken on purpose')\n")
+        if with_lib:
+            os.makedirs(os.path.join(repo, 'hooks'))
+            shutil.copy2(os.path.join(HOOKS, 'doc_reminder_lib.py'), os.path.join(repo, 'hooks'))
+        for proj in ('base repo', 'p'):
+            path = os.path.join(env['CLAUDE_HOME'], 'projects',
+                                re.sub('[^A-Za-z0-9]', '-', os.path.join(env['PROJECTS_DIR'], proj)), 'a.jsonl')
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as fh:
+                fh.write('{"type":"user","timestamp":"%s"}\n' % (now - datetime.timedelta(days=1)).strftime(
+                    '%Y-%m-%dT%H:%M:%S.000Z'))
+        want = ['  WARN: docs state: base repo: no STATUS',
+                '  WARN: no card («## Розмір») in an active project: p (0 commits, 1 sessions in 30 days)',
+                '  WARN: docs state: p: no STATUS']
+        if with_lib:
+            want.append('  WARN: journals and area docs not checked, scripts/docs_state.py failed (run it on the folder to '
+                        'see why): base repo, p')
+        p = subprocess.run(['/bin/bash', os.path.join(repo, 'scripts', 'doctor.sh'), '--live', '--skip-tests'], env=env,
+                           capture_output=True, text=True, timeout=120)
+        fails = check(name, p, PASS, want, 1, env['CLAUDE_HOME'])
+        plain = [ln for ln in p.stdout.splitlines() if ln.startswith('  journals and area docs: not checked, no ')]
+        out.append(fails + ([] if len(plain) == (0 if with_lib else 1) else ['FAIL %s: plain lines %r' % (name, plain)]))
+    return out
 
 
 def docs_sync_fails(tmp, data):
@@ -685,10 +784,11 @@ def main():
             fails, failed, ran = fails + case_fails, failed + bool(case_fails), ran + 1
         codes = exit_code_fails(tmp, data)
         fails, failed, ran = fails + codes, failed + len(codes), ran + len(EXIT_CODES)
-        for case_fails in fake_fails(tmp, data) + [state_file_fails(tmp, data), docs_fails(tmp, data), stack_fails(tmp, data),
+        for case_fails in fake_fails(tmp, data) + docs_helper_fails(tmp, data) + [
+                                                   state_file_fails(tmp, data), docs_fails(tmp, data), stack_fails(tmp, data),
                                                    window_fails(tmp, data),
                                                    commit_scan_fails(tmp, data), scan_probe_fails(tmp),
-                                                   docs_sync_fails(tmp, data)]:
+                                                   docs_sync_fails(tmp, data), docs_origin_fails(tmp, data, sys.modules[__name__])]:
             fails, failed, ran = fails + case_fails, failed + bool(case_fails), ran + 1
     print('\n'.join(fails + ['doctor test: %d cases, %d failed' % (ran, failed)]))
     return 1 if fails else 0

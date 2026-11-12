@@ -3,6 +3,7 @@ name: react-reviewer
 description: Expert React/JSX code reviewer specializing in hook correctness, render performance, server/client component boundaries, accessibility, and React-specific security.
 tools: Read, Grep, Glob, Bash
 model: sonnet
+effort: xhigh
 ---
 
 ## Prompt Defense Baseline

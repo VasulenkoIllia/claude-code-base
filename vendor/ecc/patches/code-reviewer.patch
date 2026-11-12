@@ -2,7 +2,15 @@
 # apply: patch -p1 --dry-run -d <tree with upstream at the repo path> < this file
 --- a/agents/vendor-ecc/code-reviewer.md
 +++ b/agents/vendor-ecc/code-reviewer.md
-@@ -144,14 +144,10 @@
+@@ -3,6 +3,7 @@
+ description: Expert code review specialist. Proactively reviews code for quality, security, and maintainability. Use immediately after writing or modifying code. MUST BE USED for all code changes.
+ tools: Read, Grep, Glob, Bash
+ model: sonnet
++effort: xhigh
+ ---
+ 
+ ## Prompt Defense Baseline
+@@ -144,14 +145,10 @@
  
  ### Code Quality (HIGH)
  
@@ -20,10 +28,11 @@
  
  ```typescript
  // BAD: Deep nesting + mutation
-@@ -178,6 +174,21 @@
+@@ -177,6 +174,21 @@
+     .map(user => ({ ...user, verified: true }));
  }
  ```
- 
++
 +### Clean Code (MEDIUM unless noted)
 +
 +Check new and changed code only. For untouched code add at most one line in total ("noticed: ..."), never a refactor request, and never ask to rewrite existing code to meet the numbers below. First read the project's size card: Grep `^## Розмір` in the root CLAUDE.md, CLAUDE.local.md and AGENTS.md with 8 lines of context (level T0-T3, «Не додаємо», «Люки»); no card means no level checks. The project's own conventions win over the numbers below.
@@ -38,11 +47,10 @@
 +- **Naming** (LOW): generic names outside tests (`tmp`, `obj`, `data2`, `res2`), booleans without `is/has/can`, a unit missing from the name (`timeout` instead of `timeoutMs`), a new name for a domain term the repo already names.
 +- **Magic values** (LOW): business limits, timeouts or thresholds as bare literals; MEDIUM when the same value appears in 2+ places.
 +- **What-comments** (LOW): comments that restate the code instead of saying why.
-+
+ 
  ### React/Next.js Patterns (HIGH)
  
- When reviewing React/Next.js code, also check:
-@@ -250,11 +261,7 @@
+@@ -250,11 +262,7 @@
  
  ### Best Practices (LOW)
  

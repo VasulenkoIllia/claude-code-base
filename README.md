@@ -9,9 +9,9 @@ English: [README.en.md](README.en.md).
 | Тека | Що там | Куди ставиться |
 |---|---|---|
 | `global/` | глобальні правила, `settings.json` з хуками й дозволами, `home-agents.md`, рядки git ignore | `~/.claude/CLAUDE.md`, `~/.claude/settings.json`, `~/AGENTS.md`, `~/.config/git/ignore` (рядки лише дописуються) |
-| `hooks/` | bash-guard (питає чи не пускає небезпечні команди: знищення даних, обхід git-хуків, підміну автора, секрети в коміті), secret-guard (секрет у промпті), commit-leaks (gitleaks у кожному коміті, його запускає git), dup-guard, doc-reminder, session-hint, node-std, nvm-env, docs-sync; тести `test-all.sh` | `~/.claude/hooks/` |
+| `hooks/` | bash-guard (питає чи не пускає небезпечні команди: знищення даних, обхід git-хуків, підміну автора, секрети в коміті), secret-guard (секрет у промпті), commit-leaks (gitleaks у кожному коміті, його запускає git), push-allow (push у feature-гілку без запиту), dup-guard, doc-reminder, session-hint, node-std, nvm-env, docs-sync; тести `test-all.sh` | `~/.claude/hooks/` |
 | `rules/own/` | правила, які вантажаться, коли Claude торкається файлів з їхніх `paths:` (backend, frontend, БД, deploy, залежності, чистий код, демо) | `~/.claude/rules/` |
-| `skills/` | new-project (проєкт за стандартом: Node, pnpm, Docker), client-tz (ТЗ і кошторис у Word), time-register (реєстр часу сесій і оцінки), 5 скілів ECC | `~/.claude/skills/` |
+| `skills/` | new-project (проєкт за стандартом: Node, pnpm, Docker), client-tz (ТЗ і кошторис у Word), time-register (реєстр часу сесій і оцінки), 3 скіли ECC | `~/.claude/skills/` |
 | `agents/` | рев'юери: code-reviewer, security-reviewer, typescript-reviewer, react-reviewer, database-reviewer, architect (ECC), silent-failure-hunter (Anthropic) | `~/.claude/agents/` |
 | `tools/` | claude-time (час сесій за проєктами й задачами), claude-metrics (метрики роботи до і після релізів) | `~/bin/` |
 | `vendor/ecc/` | звідки кожен скіл і агент ECC, локальні відмінності (`patches/`) | `ECC-PIN.md` у `~/.claude/` |
@@ -38,7 +38,7 @@ English: [README.en.md](README.en.md).
 
   Потім допишіть у `~/.zshrc` два рядки, які радить `brew info nvm` (`export NVM_DIR="$HOME/.nvm"` і рядок, що завантажує `/opt/homebrew/opt/nvm/nvm.sh`), і відкрийте новий термінал: перше завантаження саме створює `~/.nvm/nvm.sh`. Перевірка: `[ -s ~/.nvm/nvm.sh ] && echo ok` друкує `ok`.
 - Для `/new-project` ще `brew install uv osv-scanner` і Docker Desktop.
-- Context7 для документації бібліотек (його кличуть глобальні правила і скіл documentation-lookup): конектор Context7 у claude.ai (Settings, Connectors) або в CLI `claude mcp add --scope user --header "Authorization: Bearer <ключ>" --transport http context7 https://mcp.context7.com/mcp` з ключем з context7.com. Без нього Claude бере документацію з пам'яті моделі.
+- Context7 для документації бібліотек (його кличуть глобальні правила): конектор Context7 у claude.ai (Settings, Connectors) або в CLI `claude mcp add --scope user --header "Authorization: Bearer <ключ>" --transport http context7 https://mcp.context7.com/mcp` з ключем з context7.com. Без нього Claude бере документацію з пам'яті моделі.
 
 ## Перше встановлення
 

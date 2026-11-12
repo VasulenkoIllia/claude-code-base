@@ -3,6 +3,7 @@
 
 Usage (from the repo root):
   python3 -I tests/hook-replay.py [--days 60] [--kind all|bash|prompts] [--old PATH] [--new PATH] [--match REGEX] [--dump]
+      [--block-class NAME ...] [--old-settings FILE] [--new-settings FILE]
 
   PATH is a hooks directory (with bash-guard.sh and/or secret-guard.sh) or one hook file.
   Defaults: --old ~/.claude/hooks (live), --new <repo>/hooks (candidate). --kind defaults to "all"
@@ -39,7 +40,13 @@ Safety:
 
 Gate (exit code): 0 = no new blocks, no new hook errors or timeouts, no line in the bash-guard error log, no ask
 that goes away for no listed class, and median new asks per working day <= 1; 1 = gate failed; 2 = usage or setup error
-(hook missing, a hook that ran another gitleaks). An ask may go away only for a class of lost_kind, each printed with its count and
+(hook missing, settings not read, a hook that ran another gitleaks). A new block passes only for a class that the run
+names with --block-class (compose-config, env-print: a release that turns an ask into a block on purpose) and that the
+command explains; such blocks are printed by class. The ask rules of settings.json (--old-settings, default the live
+~/.claude/settings.json; --new-settings, default the repo's global/settings.json) and the hook of PermissionRequest
+next to each bash-guard (push-allow.sh) are part of the bash gate, as a model (tests/replay_rules.py): a prompt that the
+new hook answers must be a push to a feature branch, an ask of a rule that goes away any other way fails, and a new ask
+of a rule is listed by rule and counts in the median. An ask may go away only for a class of lost_kind, each printed with its count and
 shapes: an ask about the commit identity in a one-off repo under /tmp or for text only in heredoc bodies (lost_far: else
 neither the folder nor a folder the command names, by cd, mkdir, git -C, git init or NAME=, is under /tmp), and the
 others for a quoted heredoc of cat, tee, python or node, docker exec or docker volume rm on a name with a part e2e,
@@ -69,6 +76,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # -I drops the script folder from sys.path
 from replay_common import (HOME, REPO, blocks, list_files, local_date, log_lines, pct, records, sha,  # noqa: E402
                            short, window_start, write_dump)
+from replay_rules import BLOCK_CLASSES, block_class, rules_gate, rules_scan, side  # noqa: E402
 
 SHELL_TOOLS = ('Bash', 'Monitor', 'mcp__terminal__run_in_terminal')
 HOOK_FILES = {'bash': 'bash-guard.sh', 'prompts': 'secret-guard.sh'}
@@ -404,11 +412,17 @@ def report(kind, old, new, rows, uniq, results, ctx, shapes_n):
 
     worse = 'ask' if kind == 'bash' else 'warn'
     new_block = new_err = new_soft = far = 0
-    per_day, lost = collections.Counter(), collections.Counter()
-    for key, (od, orr, _, nd, _, _) in results.items():
+    per_day, lost, classed = collections.Counter(), collections.Counter(), collections.Counter()
+    class_shapes = collections.defaultdict(collections.Counter)
+    for key, (od, orr, _, nd, nr, _) in results.items():
         n = len(by_key[key])
         if nd == 'block' and od != 'block':
-            new_block += n
+            cls = block_class(key[1], nr) if kind == 'bash' else None
+            if cls in ctx.get('block_classes', ()):
+                classed['%s (was %s)' % (cls, od)] += n
+                class_shapes['%s (was %s)' % (cls, od)][shape(key[1])] += n
+            else:
+                new_block += n
         if nd in EXTRA and od != nd:
             new_err += n
         if nd == worse and od == 'allow':
@@ -419,19 +433,30 @@ def report(kind, old, new, rows, uniq, results, ctx, shapes_n):
             why = lost_kind(key[1], key[2], orr, ctx['left'].get(key))
             lost[why or 'NO CLASS'] += n
             far += 0 if why else n
+    rules_ok = True
+    if kind == 'bash' and ctx.get('rules'):
+        rules_ok, rule_days = rules_gate(by_key, results, ctx['rules'], ctx['sides'], shape, shapes_n)
+        per_day.update(rule_days)
+        new_soft += sum(rule_days.values())
     median_soft = statistics.median([per_day[d] for d in ctx.get('work_days', dates)]) if dates else 0
     timeouts = sum(len(by_key[k]) for k, r in results.items() if 'timeout' in (r[0], r[3]))
     logged = ctx['logged']
     quick = 'match_total' in ctx
     ok = new_block == 0 and new_err == 0 and not logged and not far and (kind != 'bash' or median_soft <= 1) \
-        and (bool(rows) or not quick)
+        and (bool(rows) or not quick) and rules_ok
     for line in logged[:shapes_n]:
         print('logged  %s' % line[:160])
+    for cls, n in classed.most_common():
+        print('new blocks  class %s, named by --block-class: %d' % (cls, n))
+        for s, k in class_shapes[cls].most_common(shapes_n):
+            print('      %4dx  %s' % (k, s))
     for why, n in lost.most_common():
         print('lost asks  %s: %d' % (why, n))
-    print('gate  new blocks %d; new %ss %d (median %.1f per working day); new errors/timeouts %d; error log %d '
-          'lines; asks gone with no class %d -> %s%s' % (new_block, worse, new_soft, median_soft, new_err, len(logged),
-                                                          far, 'QUICK ' if quick else '', 'PASS' if ok else 'FAIL'))
+    print('gate  new blocks %d%s; new %ss %d (median %.1f per working day); new errors/timeouts %d; error log %d '
+          'lines; asks gone with no class %d%s -> %s%s'
+          % (new_block, ' outside the named classes' if ctx.get('block_classes') else '', worse, new_soft, median_soft,
+             new_err, len(logged), far, '' if rules_ok else '; rules: an ask gone with no class',
+             'QUICK ' if quick else '', 'PASS' if ok else 'FAIL'))
     print('time  old %s; new %s; timeouts %d' % (ms([r[2] for r in results.values()]),
                                                   ms([r[5] for r in results.values()]), timeouts))
     return ok
@@ -524,8 +549,15 @@ def replay(kind, args, ctx):
         uniq.setdefault(row_key(kind, row), row)
     workdir = tempfile.mkdtemp(prefix='hook-replay-')
     errlog = os.path.join(workdir, 'bash-guard.err')   # not the live log in ~/.claude/logs
+    pushlog = os.path.join(workdir, 'push-allow.err')
     env = {k: v for k, v in os.environ.items() if k not in ('LANG', 'LC_ALL', 'LC_CTYPE')} \
-        if kind == 'prompts' else dict(os.environ, BASH_GUARD_ERRLOG=errlog)
+        if kind == 'prompts' else dict(os.environ, BASH_GUARD_ERRLOG=errlog, PUSH_ALLOW_ERRLOG=pushlog)
+    sides = rules = None
+    if kind == 'bash':
+        try:
+            sides = side(args.old_settings, old), side(args.new_settings, new)
+        except ValueError as e:
+            die(str(e))
     try:
         if kind == 'bash':
             env['PATH'] = leaks_path(workdir)
@@ -550,12 +582,15 @@ def replay(kind, args, ctx):
             die('no hook ran the stand-in for gitleaks, so a real one may have scanned real repos; stop')
         gone = [k for k, r in results.items() if kind == 'bash' and r[0] == 'ask' and r[3] == 'allow']
         left = classes_left(old, gone, env, timeout, workdir, args.jobs)
-        logged = log_lines(errlog)
+        if sides:
+            print('[%s] the ask rules and the hook of PermissionRequest ...' % kind, file=sys.stderr, flush=True)
+            rules = rules_scan(results, sides, env, workdir, args.jobs)
+        logged = log_lines(errlog) + log_lines(pushlog)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     t2 = time.perf_counter()
     ctx = dict(ctx, files=len(files), audit_skipped=audit_skipped, bad=bad, no_command=no_command, logged=logged,
-               left=left)
+               left=left, rules=rules, sides=sides, block_classes=set(args.block_class))
     ok = report(kind, old, new, rows, uniq, results, ctx, args.shapes)
     if args.dump:
         dump(kind, rows, results)
@@ -587,6 +622,13 @@ def main():
                     help='quick replay: only calls and prompts it finds (case-insensitive), not a full replay')
     ap.add_argument('--dump', action='store_true',
                     help='also write the changed items (raw) to research/replay-cache/ (gitignored, 0600)')
+    ap.add_argument('--block-class', action='append', default=[], choices=[c[0] for c in BLOCK_CLASSES], metavar='NAME',
+                    help='a class of new blocks this release makes on purpose (%s); may repeat'
+                    % ', '.join(c[0] for c in BLOCK_CLASSES))
+    ap.add_argument('--old-settings', default=os.path.join(HOME, '.claude', 'settings.json'),
+                    help='settings.json with the ask rules of the old side (live)')
+    ap.add_argument('--new-settings', default=os.path.join(REPO, 'global', 'settings.json'),
+                    help='settings.json with the ask rules of the new side (repo)')
     args = ap.parse_args()
     if args.days < 1 or args.jobs < 1 or (args.timeout is not None and args.timeout <= 0) or args.shapes < 0:
         ap.error('--days, --jobs and --timeout must be positive, --shapes not negative')

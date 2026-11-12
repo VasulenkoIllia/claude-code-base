@@ -6,8 +6,8 @@ The MIT license in [LICENSE](LICENSE) covers the files of this repo except the o
 
 - Source: https://github.com/affaan-m/everything-claude-code, commits 2d515e4 and 125d5e6 (per item in `vendor/ecc/items.tsv`).
 - License: MIT, Copyright (c) 2026 Affaan Mustafa (text below).
-- Files: `skills/vendor-ecc/` (api-design, database-migrations, docker-patterns, documentation-lookup, security-review) and `agents/vendor-ecc/` (architect, code-reviewer, database-reviewer, react-reviewer, security-reviewer, typescript-reviewer).
-- Changes: `vendor/ecc/patches/<name>.patch` is the diff against the source commit; a summary is in `vendor/ecc/ECC-PIN.md`, «Local divergences». documentation-lookup is unchanged.
+- Files: `skills/vendor-ecc/` (database-migrations, docker-patterns, security-review) and `agents/vendor-ecc/` (architect, code-reviewer, database-reviewer, react-reviewer, security-reviewer, typescript-reviewer).
+- Changes: `vendor/ecc/patches/<name>.patch` is the diff against the source commit; a summary is in `vendor/ecc/ECC-PIN.md`, «Local divergences».
 
 ```text
 MIT License

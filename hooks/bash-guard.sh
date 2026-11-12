@@ -72,6 +72,8 @@ case $rc in
   *) guard_log "JqExit $rc" ;;
 esac
 block(){ echo "BLOCKED by bash-guard: $1. Hand this command to the user or take a different approach; don't work around the block with a variant of the command." >&2; exit 2; }
+# a block whose reason names the forms that pass: those are the way on, not a variant to keep away from
+block_forms(){ echo "BLOCKED by bash-guard: $1. Use a form named here or hand the command to the user; don't print the values in another way." >&2; exit 2; }
 shopt -s nocasematch
 # one shell word (quoted strings may contain spaces/newlines); args never cross ; & | or an unquoted newline
 W='("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:];&|"'"'"'])+'
@@ -132,10 +134,15 @@ id_scan(){ # AI identity -> block; another identity -> remembered for an ask. $2
   [[ $s =~ $1 ]] && id_other=1   # more than 10 identities in one command, or no time: not checked one by one, ask
   return 0
 }
-# rm -r on the home folder or a system folder, as it is or in a pair of quotes; a tilde in quotes is a folder of that name
-T='(/|\$\{?home\}?|/etc|/usr|/var|/opt|/system|/library|/users|/var/www|/var/lib/docker|/users/[^/[:space:];&|]+)/?\*?'
+# rm -r on the home folder or a system folder, as it is or in a pair of quotes; a tilde in quotes is a folder of that name.
+# Also on a folder of the first level of home that holds what no build makes again (HD: all the projects, the settings and
+# keys, the docs repo, the time register), itself or its /*: ~/tmp/build and a path inside such a folder pass. rm also
+# as \rm, /bin/rm, /usr/bin/rm, in ( ) or $( ), the folder also as "$HOME"/x (owner's decision 11.11.2026: a guard with
+# no real case)
+HD='(webstormprojects|projects|documents|\.claude|\.ssh|project-docs|claude-time)'
+T="(/|(\\\$\{?home\}?|/users/[^/[:space:];&|]+)(/$HD)?|/etc|/usr|/var|/opt|/system|/library|/users|/var/www|/var/lib/docker)/?\*?"
 F='(-{1,2}[a-z-]+[[:space:]]+)*'
-r_rm="(^|[;&|[:space:]])rm[[:space:]]+$F(-[a-z]*r[a-z]*|--recursive)[[:space:]]+$F(~/?\*?|$T|\"$T\"/?\*?|'$T'/?\*?)([[:space:];&|]|\$)"
+r_rm="(^|[;&|([:space:]])(\\\\|/bin/|/usr/bin/)?rm[[:space:]]+$F(-[a-z]*r[a-z]*|--recursive)[[:space:]]+$F(~(/$HD)?/?\*?|$T|\"$T\"/?\*?|'$T'/?\*?|\"\\\$\{?home\}?\"/$HD/?\*?)([[:space:];&|)]|\$)"
 r_rmdata="(^|[;&|[:space:]])rm[[:blank:]]+(-[a-z]*[[:blank:]]+)*-[a-z]*r[a-z]*$A[[:blank:]]+[^;&|[:space:]]*(uploads?|pgdata|postgres-data|data/postgres|\.git|prisma/migrations|backups?|dumps?)/?\*?\"?$E"
 r_docker="docker[[:blank:]]+((system|volume|image|builder)[[:blank:]]+prune|volume[[:blank:]]+rm)|compose$A[[:blank:]]+down$A[[:blank:]]+(-v|--volumes)$E"
 r_prisma='prisma[[:space:]]+migrate[[:space:]]+reset|--accept-data-loss|--force-reset'
@@ -147,20 +154,68 @@ r_eph="(drop[[:space:]]+database|dropdb([[:blank:]]+-[^[:space:]]+)*)[[:space:]]
 r_sh="[[:space:]]*(sudo[[:space:]]+)?(ba|z)?sh([[:space:]]|\$)"
 r_pipe="(curl|wget)([^|"$'\n'"]|\"[^\"|]*\"|'[^'|]*')*\\|$r_sh|(curl|wget)[^|]*(\\}|\\)|done|fi)[[:space:]]*\\|$r_sh"
 r_git_destroy="${G}(reset$A[[:blank:]]+--hard|clean$A[[:blank:]]+-[a-z]*f|checkout[[:blank:]]+(--[[:blank:]]+)?\.$E|restore$A[[:blank:]]+\.$E|stash[[:blank:]]+(drop|clear))"
-r_envprint="(^|[;&|[:space:]])(cat|head|tail|less|more|bat)([[:blank:]]+-[^[:space:]]+)*[[:blank:]]+[^;&|[:space:]]*\.env(\.[a-z.]+)?$E"
+# An env file as a word of a command: bare, or the whole of a quoted word with no blank in it (cat "$DIR/.env"), with a
+# suffix (.env.prod-2) or a glob (.env*); a name after a backslash is a pattern (\.env). Any words may stand before it
+# (cat README.md .env), each on the line of the command: WL takes no quoted string over a newline, because a match that
+# starts inside a string of a long script pairs its quotes wrongly and would run on to a far "... --env-file x.env"
+NL=$'\n'
+WL="(\"[^\"$NL]*\"|'[^'$NL]*'|[^[:space:];&|\"'])+"
+AL="([[:blank:]]+$WL)*"
+SX='(\.[a-z0-9._*-]*|\*)?'
+EFC="(\"([^\"[:space:]]*[^\"[:space:]\\\\])?\.env$SX\"|'([^'[:space:]]*[^'[:space:]\\\\])?\.env$SX'|([^;&|[:space:]\"']*[^;&|[:space:]\"'\\\\])?\.env$SX)"
+EL='(^|[;&|[:space:]])(/bin/|/usr/bin/)?'
+r_envprint="$EL(cat|head|tail|less|more|bat)$AL[[:blank:]]+$EFC$E"
+# grep, sed, awk: the file stands after the pattern or the script, a word that is no option (or -eKEY, --regexp=KEY):
+# grep -rn process.env src and ls -a | grep -v .env read no env file
+NW="((\"[^\"$NL]*\"|'[^'$NL]*'|[^-[:space:];&|\"'])($WL)?|-[a-zA-Z]*[ef][[:blank:]]*$WL|--(regexp|expression|file)=$WL)"
+r_envgrep="$EL(grep|sed|awk)$AL[[:blank:]]+$NW$AL[[:blank:]]+$EFC$E"
+# words that read no env file and are cut out before the two rules above look: an example, the file an output
+# redirection writes (cat > .env <<EOF, sed ... > .env), a file-name filter of grep (--exclude=.env)
+EX='\.(example|sample|template|dist)'
+r_envskip="(--(exclude|include)(-dir|-from)?=[^;&|[:space:]]*|[0-9]?>>?[[:blank:]]*$EFC|\"[^\"$NL]*$EX\"|'[^'$NL]*$EX'|[^;&|[:space:]\"']*$EX)$E"
+# no value of the file in their output: grep that counts, tests or lists files, sed that edits in place or whose script
+# cuts every value (SC: s/=.*/text/ with no & and no backslash in the text), grep -o with a pattern of key names that
+# starts at the ^ and ends with the = (KN: letters, digits, _, name classes and [^=]; a dot or a class with = in it may
+# run into a value, and with no ^ the pattern finds the = inside a value). Read with the case of the letters: grep -C
+# is context. Before the option that counts stand only options that take no value (NA for grep, NV: with -o not -v,
+# which prints the other lines whole; SS for sed): in grep -e -l -e KEY the -l is a pattern, and -ec is the pattern c.
+# Or stdout goes to /dev/null and nothing after that sends it elsewhere (>/dev/null >&2 prints)
+KC="([A-Za-z0-9_(]|\\[\\^=\\]|\\[[A-Za-z0-9_-]+\\])"
+KN="[\"']?\\^$KC([|)+*?-]|$KC)*=[\"']?"
+NA='EFGPivwxclLqsnbHhorRUzZIay'
+NV=${NA/v/}
+SO="([[:blank:]]+-[$NA]+)*"
+SV="([[:blank:]]+-[$NV]+)*"
+SS='([[:blank:]]+-[nErsuz]+)*'
+SC="[\"']?s(/=\\.[*+]\\\$?/[^/&\\\\]*/|\\|=\\.[*+]\\\$?\\|[^|&\\\\]*\\|)[gpI0-9]*[\"']?"
+r_envquiet="^[;&|[:space:]]?(/bin/|/usr/bin/)?(grep$SO[[:blank:]]+(-[$NA]*[cqlL][a-zA-Z]*|--(count|quiet|silent|files-with-matches|files-without-match))[[:blank:]]|grep$SV[[:blank:]]+-[$NV]*o[$NV]*$SV[[:blank:]]+$KN[[:blank:]]|sed$SS[[:blank:]]+(-[nErsuz]*i[^[:space:]]*|--in-place[^[:space:]]*)[[:blank:]]|sed$SS([[:blank:]]+-e)?[[:blank:]]+$SC[[:blank:]])"
+r_envnull="^[[:blank:]]*(1?>|&>)[[:blank:]]*/dev/null[[:blank:]]*(2>&1[[:blank:]]*)?([;&|)"$'\n'"]|\$)"
+# a mask after a pipe on the same line (a newline ends it: the lines after may be the text of a script). The rule
+# reads the form, not what the filter does: cut -d= -f2 passes as cut -d= -f1 does (as before 11.11.2026)
 r_envmask='\|[[:blank:]]*(cut|sed|awk|grep[[:blank:]]+-c|wc|od)([[:space:]]|$)'
+r_envrest="^[^;&"$'\n'"]*$r_envmask"
 r_killall='kill[[:blank:]]+-(9|kill|s[[:blank:]]+kill)[[:blank:]]+-1([[:space:];&|]|$)'
-# docker compose config prints the merged config with env values (secrets) unless a listing flag is given
-r_ccfg="(docker[[:blank:]]+compose|docker-compose)$A[[:blank:]]+(config|convert)$E"
-r_ccfg_ok="(docker[[:blank:]]+compose|docker-compose)$A[[:blank:]]+(config|convert)$A[[:blank:]]+(-q|--quiet|--services|--volumes|--images|--profiles|--networks|--hash)$E"
+# docker compose config prints the merged config with env values (secrets) unless a listing flag is given (CL). It
+# blocks when only options of docker and of compose stand before config (CV: those with the value in the next word).
+# With any other word there (compose exec app npm config get x, a variable) the rule cannot tell: it asks, as before
+CV='(-f|--file|-p|--project-name|--profile|--env-file|--project-directory|--ansi|--progress|--parallel|-c|--context|-H|--host|--config|-l|--log-level)'
+CO="([[:blank:]]+($CV[[:blank:]]+$W|-$W))*"
+CL='(-q|--quiet|--services|--volumes|--images|--profiles|--networks|--hash)'
+r_ccfg="(docker$CO[[:blank:]]+compose|docker-compose)$CO[[:blank:]]+(config|convert)$E"
+r_ccfg_ok="(docker$CO[[:blank:]]+compose|docker-compose)$CO[[:blank:]]+(config|convert)$A[[:blank:]]+$CL$E"
+r_ccfg_any="(docker[[:blank:]]+compose|docker-compose)$A[[:blank:]]+(config|convert)$E"
+r_ccfg_any_ok="(docker[[:blank:]]+compose|docker-compose)$A[[:blank:]]+(config|convert)$A[[:blank:]]+$CL$E"
 r_dburl='(postgres(ql)?(\+[a-z0-9]+)?|mysql2?|mariadb|mssql|mongodb(\+srv)?|rediss?|amqps?|clickhouse|libsql|cockroachdb)://[^:/@[:space:]"'"'"']*:([^@[:space:]"'"'"']+)@([^/:@[:space:]"'"'"']+)'
 r_resolve='prisma[[:space:]]+migrate[[:space:]]+resolve'
 r_misc="(^|[;&|[:space:]])sudo([[:blank:]]+-[a-z]+([[:blank:]]+[^-[:space:];&|][^[:space:];&|]*)?)*[[:blank:]]+rm[[:blank:]]|chmod[[:blank:]]+(-[a-z]*r[a-z]*|--recursive)[[:blank:]]+0?777|(^|[;&|[:space:]])((npm|pnpm|yarn|bun)$A[[:blank:]]+publish|changeset[[:blank:]]+publish)([[:space:]]|$)"
 ask_why(){   # why: the reason of the first ask rule that the text $1 trips, empty when none
-  local t=$1 c n m after r_ex r_rest
+  local t=$1 c n before after
   why=""
   [[ $t =~ $r_docker ]] && { why="деструктивна операція з docker volumes/images"; return; }
   [[ $t =~ $r_prisma ]] && { why="деструктивна prisma-операція"; return; }
+  c=$t; n=0   # compose config with a word before config that is no option; the plain form blocks in hard_why
+  while [[ $c =~ $r_ccfg_any_ok ]] && [ $n -lt 20 ] && in_time; do split_first "$c" "${BASH_REMATCH[0]}"; c="$before $after"; n=$((n+1)); done
+  [[ $c =~ $r_ccfg_any ]] && { why="docker compose config друкує секрети з env; для перевірки -q, для списку --services, для повного виводу -o <файл> чи > файл"; return; }
   c=$t; n=0
   while [[ $c =~ $r_eph ]] && [ $n -lt 20 ] && in_time; do split_first "$c" "${BASH_REMATCH[0]}"; c="$before $after"; n=$((n+1)); done
   [[ $c =~ $r_sql ]] && { why="DROP/TRUNCATE/dropdb через клієнт БД"; return; }
@@ -168,20 +223,42 @@ ask_why(){   # why: the reason of the first ask rule that the text $1 trips, emp
   [[ $t =~ $r_pipe ]] && { why="виконання скрипта з інтернету (curl | sh)"; return; }
   [[ $t =~ $r_git_destroy ]] && { why="git-операція, що знищує незакомічені зміни (reset --hard / clean -f / checkout . / stash drop)"; return; }
   [[ $t =~ $r_rmdata ]] && { why="rm -r по даних проєкту (uploads/pgdata/.git/migrations/backups)"; return; }
-  c=$t; n=0   # every config call needs its own listing flag
-  while [[ $c =~ $r_ccfg_ok ]] && [ $n -lt 20 ] && in_time; do split_first "$c" "${BASH_REMATCH[0]}"; c="$before $after"; n=$((n+1)); done
-  [[ $c =~ $r_ccfg ]] && { why="docker compose config друкує секрети з env; для перевірки -q, для списку --services, для повного виводу -o <файл> чи > файл"; return; }
   [[ $t =~ $r_resolve ]] && { why="prisma migrate resolve змінює історію міграцій; спершу migrate status і покажи розбіжність"; return; }
   [[ $t =~ $r_misc ]] && { why="sudo rm, chmod -R 777 чи publish пакета"; return; }
-  if [[ $t =~ $r_envprint ]]; then
-    m=${BASH_REMATCH[0]}
-    split_first "$t" "$m"
-    r_ex="\\.(example|sample|template|dist)$E"; r_rest="^[^;&"$'\n'"]*$r_envmask"
-    [[ $m == *$'\n' ]] && after=""   # a mask counts on its line: the lines after it may be the text of a script
-    if ! [[ $m =~ $r_ex ]] && ! [[ $after =~ $r_rest ]]; then
-      why="друк вмісту .env (імена ключів бери з .env.example; довжину перевіряй: set -a; . ./.env; set +a; echo len=\${#VAR})"
-    fi
-  fi
+}
+# The two rules that put secrets into the transcript block (owner's decision 11.11.2026: as asks they were approved every
+# time, and an approval printed the values). The reason names what passes
+why_ccfg='docker compose config prints the env values (secrets): -q validates, --services lists, the full output goes only into a file (-o <file> or > file), and that file is not printed either'
+why_env='printing an env file puts its values (secrets) into the transcript: key names are in .env.example, a mask passes (| cut -d= -f1, grep -c), the length of a value: set -a; . ./.env; set +a; echo len=${#VAR}'
+env_silent(){   # env_silent <read> <text after it>: the read puts no value of the file on the screen. With the case of
+  # the letters; a /dev/ in the read itself may be a way to the screen (sed 'w /dev/stderr' x >/dev/null)
+  local rc=1 rest="${1: -1}$2"   # the match may end with the | or the blank itself
+  shopt -u nocasematch
+  if [[ $rest =~ $r_envrest ]] || { [[ $1 != */dev/* ]] && { [[ $1 =~ $r_envquiet ]] || [[ $rest =~ $r_envnull ]]; }; }; then rc=0; fi
+  shopt -s nocasematch
+  return $rc
+}
+hard_why(){   # hard: the reason of the first block rule that the text $1 trips, empty when none
+  local t=$1 c n m r before after
+  hard=""
+  c=$t; n=0   # every config call needs its own listing flag
+  while [[ $c =~ $r_ccfg_ok ]] && [ $n -lt 20 ] && in_time; do split_first "$c" "${BASH_REMATCH[0]}"; c="$before $after"; n=$((n+1)); done
+  [[ $c =~ $r_ccfg ]] && { hard=$why_ccfg; return; }
+  [[ $t == *.env* ]] || return 0
+  n=0   # the words of r_envskip go first, so every other env file of a command counts: cat .env.example .env
+  while [[ $t =~ $r_envskip ]] && [ $n -lt 20 ] && in_time; do
+    m=${BASH_REMATCH[0]}   # its last character stays: it ended the word (; | or a blank; at the end of the text a letter)
+    split_first "$t" "$m"; t="$before ${m: -1}$after"; n=$((n+1))
+  done
+  for r in "$r_envprint" "$r_envgrep"; do
+    c=$t; n=0   # every read of a file: one with a mask says nothing of the next
+    while [[ $c =~ $r ]] && [ $n -lt 20 ] && in_time; do
+      m=${BASH_REMATCH[0]}; split_first "$c" "$m"; c=$after; n=$((n+1))
+      env_silent "$m" "$after" && continue
+      hard=$why_env; return
+    done
+    [[ $c =~ $r ]] && { hard=$why_env; return; }   # more reads than the loop takes, or no time: not looked at one by one
+  done
 }
 # The script of a shell -c: a quote stands where the rules want a blank or the end of a command. So for the rules each script
 # is one more line of the text; it may hold another shell -c. It is read up to its first closing quote
@@ -242,8 +319,14 @@ if [ -n "$id_other" ] && in_time && helper bash-guard-dirs.py && rescan; then   
   id_other=""
   for r in "$r_id_author" "$r_id_c" "$r_id_cq" "$r_id_env" "$r_id_cfg"; do id_scan "$r" "$rest"; done
 fi
-[[ $cmd =~ $r_rm ]] && block "rm -r on a system or home directory"
+[[ $cmd =~ $r_rm ]] && block "rm -r on a system or home directory, or on a folder of home that nothing makes again"
 [[ $cmd =~ $r_killall ]] && block "kill -9 -1 (all user processes)"
+# A rule of section 3 or a block rule of hard_why tripped: only the text that runs here counts (a script a heredoc writes,
+# a command in a test container do not). bash-guard-exec.py prints that text, any doubt: the whole command; python
+# missing, killed or broken: the verdict of the first pass. The blocks come here, before the first ask of the steps below
+ask_why "$cmd"; hard_why "$cmd"
+if [ -n "$why$hard" ] && in_time && helper bash-guard-exec.py && rescan; then ask_why "$rest"; hard_why "$rest"; fi
+[ -z "$hard" ] || block_forms "$hard"
 # 2. Secrets in staged changes: LEAKS_CODE is a secret, code 0 is no finding (no proof of a scan: outside a repo gitleaks ends
 # with 0 too). With no gitleaks, no time or any other code nothing is known: a line in the log, and an ask that comes after
 # the blocks of the steps below
@@ -290,11 +373,7 @@ if [[ $cmd =~ $r_commit ]]; then
 fi
 # 3. Ask the user
 [ -n "$id_other" ] && ask "коміт чи git-налаштування з іменем, що не збігається з твоїм git user.name/user.email"
-# A rule tripped: only the text that runs here counts (a script a heredoc writes, a command in a test container do not).
-# bash-guard-exec.py prints that text, any doubt: the whole command; python missing, killed or broken: the ask of before
-ask_why "$cmd"
-if [ -n "$why" ] && in_time && helper bash-guard-exec.py && rescan; then ask_why "$rest"; fi
-[ -n "$why" ] && ask "$why"
+[ -n "$why" ] && ask "$why"   # found in section 1, with the block rules
 c4=$cmd   # every URL in the command: a literal password to a real remote host (domain or IP); text that does not
 # run counts here too, it stays in the transcript all the same
 while [[ $c4 =~ $r_dburl ]] && in_time; do

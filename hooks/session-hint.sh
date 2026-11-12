@@ -2,7 +2,9 @@
 # PostToolUse Bash and SessionStart compact: after a git push that ran, and after every compaction, the model gets one
 # line of additionalContext: if the next step is a different task, end the turn with a new-session card instead of
 # continuing here; after a compaction also the owner's language. After a gh pr create that opened a PR: wait for CI in
-# the background and end with the merge decision, since the app wakes a session only on red, never on green.
+# the background, since the app wakes a session only on red, never on green, and on green run gh pr merge at once: its
+# permission prompt (the ask rule in settings.json) is the owner's decision, a button before it was a second
+# confirmation of the same step (owner's decision 11.11.2026).
 # Only adds context, never blocks: always exit 0. Silent for a subagent (agent_id in the input: only the main session
 # can start one), a dry run and a push whose output says it failed (git push 2>&1 | tail exits 0). As in bash-guard,
 # git push in the text of a command (a heredoc, echo, grep, a commit message) counts too. A Bash call without "push" or
@@ -93,8 +95,9 @@ E='([[:space:];&|)]|$)'
 R="gh([[:blank:]]+(-R|--repo)[[:blank:]]+$W)*[[:blank:]]+pr "
 if [ "$verdict" = opened ] && [[ $cmd =~ ${R}create$E ]] && ! [[ $cmd =~ ${R}merge$E ]]; then
   pr="PR opened. Start one background call, not a poll: \`gh pr checks <number> --watch\` with run_in_background (the"
-  pr+=" app wakes you only on failures, not on green). When it ends green, end the turn with the merge decision (app:"
-  pr+=" wrap_up with reply buttons; CLI: a question)."
+  pr+=" app wakes you only on failures, not on green). When it ends green, say in one line what gets merged into which"
+  pr+=" branch and run \`gh pr merge\` right away: its permission prompt is the user's merge decision, so no question"
+  pr+=" and no reply buttons before it (in a session that shows no permission prompts, ask before the merge instead)."
   emit PostToolUse "$pr"
 fi
 [[ $cmd =~ $G$E ]] || quiet 'no git push in the command'

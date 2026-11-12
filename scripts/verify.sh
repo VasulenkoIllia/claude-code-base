@@ -1,5 +1,6 @@
 #!/bin/bash
-# verify.sh: offline checks for the Claude setup base (plan 4.6 and 4.8, step 1). Takes a few seconds.
+# verify.sh: offline checks for the Claude setup base (plan 4.6 and 4.8, step 1). Takes some 4.5 minutes (270 s on
+# 10.11.2026), most of it the hook tests of check 8 (test-all.sh, some 200 s).
 #
 #   bash scripts/verify.sh          check this repo: the files git would commit (tracked + untracked, not ignored)
 #   bash scripts/verify.sh <dir>    check another tree, e.g. the staging dir install.sh unpacked from a tag
@@ -13,7 +14,7 @@ set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 case "${1:-}" in
-  -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+  -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
   -*) echo "unknown option: $1" >&2; exit 2 ;;
 esac
 [ $# -le 1 ] || { echo "usage: bash scripts/verify.sh [dir]" >&2; exit 2; }
@@ -27,7 +28,9 @@ done
 
 # Limits and known exceptions -------------------------------------------------------------------
 CLAUDE_MD_MAX=9900           # bytes, ≈3 550 tokens of the English text (≈2.8 B/token, measured 14.10), docs/adr/ADR-002-claude-md-budget.md
-SKILL_DESC_MAX=1536          # characters of description + when_to_use (the skill listing cuts the rest), plan 4.6
+SKILL_DESC_MAX=500           # characters of description + when_to_use: the base's own limit (the skill listing cuts at 1 536, and the whole listing at 1% of the model's window), ADR-002
+SKILL_BODY_MAX=24000         # bytes of the SKILL.md of an own skill (skills/own): it is read whole on every call, ADR-002
+SKILL_LINES_MAX=500          # lines of the SKILL.md of an own skill; the detail goes to a file next to it
 SKILL_EXTERNAL="graphify"    # skills outside the base (README, «Не керує»): allowed as skillOverrides keys, never in skills:
 RULE_MAX=2000                # bytes per path-scoped rule file (B2); ≈810 tokens of the English text (2.47 B/token, 14.10)
 RULES_TOTAL_MAX=13000        # bytes for all rule files together (B2 8500; B2.1 adds deps.md; B4 adds clean-code.md; unchanged at the language stage 14.10; 12 500 -> 13 000 on 03.11 for the move to pnpm in deps.md, owner's decision, ADR-002)
@@ -218,7 +221,7 @@ fi
 cat > "$WORK/frontmatter.py" <<'PY'
 import ast, json, os, re, sys
 root, desc_max = sys.argv[1], int(sys.argv[2])
-external = set(sys.argv[3].split()) if len(sys.argv) > 3 else set()
+external, body_max, lines_max = set(sys.argv[3].split()), int(sys.argv[4]), int(sys.argv[5])
 NAME = re.compile(r'^[a-z0-9][a-z0-9-]{0,63}$')
 ARGS = re.compile(r'\$(?:[0-9]|ARGUMENTS)')
 SKILL_GROUPS, AGENT_GROUPS = ('vendor-ecc', 'own'), ('vendor-ecc', 'vendor-anthropic', 'own')
@@ -282,6 +285,10 @@ def lint(kind, rel, expected, text_check):
         listed = len(desc) + (len(wtu) + 1 if wtu else 0)
         if listed > desc_max:
             fails.append('%s: description + when_to_use %d chars, max %d' % (rel, listed, desc_max))
+        size, nlines = len(text.encode('utf-8')), len(text.splitlines())
+        if rel.startswith('skills/own/') and (size > body_max or nlines > lines_max):
+            fails.append('%s: %d B, %d lines; an own skill holds at most %d B and %d lines (move the detail to a file '
+                         'next to it)' % (rel, size, nlines, body_max, lines_max))
     if text_check:
         for no, line in enumerate(text.split('\n'), 1):
             if ARGS.search(line):
@@ -391,19 +398,19 @@ for f in fails:
     print(f)
 sys.exit(1 if fails else 0)
 PY
-fmout=$(python3 -I "$WORK/frontmatter.py" . "$SKILL_DESC_MAX" "$SKILL_EXTERNAL") && fmrc=0 || fmrc=$?
-if [ "$fmrc" -eq 0 ]; then ok "frontmatter: $(printf '%s\n' "$fmout" | head -1): name + description (+ when_to_use <= $SKILL_DESC_MAX), no \$N/\$ARGUMENTS in SKILL.md, preloads visible, skillOverrides keys and values valid, no hidden conditional skill, metrics lists match"
+fmout=$(python3 -I "$WORK/frontmatter.py" . "$SKILL_DESC_MAX" "$SKILL_EXTERNAL" "$SKILL_BODY_MAX" "$SKILL_LINES_MAX") && fmrc=0 || fmrc=$?
+if [ "$fmrc" -eq 0 ]; then ok "frontmatter: $(printf '%s\n' "$fmout" | head -1): name + description (+ when_to_use <= $SKILL_DESC_MAX), SKILL.md of an own skill <= $SKILL_BODY_MAX B and $SKILL_LINES_MAX lines, no \$N/\$ARGUMENTS in SKILL.md, preloads visible, skillOverrides keys and values valid, no hidden conditional skill, metrics lists match"
 else fail "frontmatter: $(printf '%s\n' "$fmout" | tail -n +2 | wc -l | tr -d ' ') problems"; printf '%s\n' "$fmout" | tail -n +2 | details; fi
 
 # 9a. Negative fixtures for check 9: a clean synthetic tree must pass, and each copy with one defect
 # must fail with exactly one problem, the expected one. Catches a check that stopped catching.
 cat > "$WORK/frontmatter-fixtures.py" <<'PY'
 import json, os, sys
-out, desc_max = sys.argv[1], int(sys.argv[2])
-PRE = '---\nname: fx-pre\ndescription: Fixture skill an agent preloads.\n%s---\nBody.\n'
+out, desc_max, body_max, lines_max = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
+PRE = '---\nname: fx-pre\ndescription: Fixture skill an agent preloads.\n%s---\n%s'
 COND = '---\nname: fx-cond\ndescription: Fixture conditional skill.\nwhen_to_use: %s\npaths:\n  - "**/*.fx"\n---\nBody.\n'
 AGENT = '---\nname: fx-agent\ndescription: Fixture agent.\ntools: Read\n%s---\nBody.\n'
-CLEAN = {'pre': '', 'wtu': 'When a .fx file changes.', 'skills': 'skills:\n  - fx-pre\n',
+CLEAN = {'pre': '', 'wtu': 'When a .fx file changes.', 'skills': 'skills:\n  - fx-pre\n', 'body': 'Body.\n',
          'overrides': {'fx-pre': 'name-only', 'fx-ext': 'user-invocable-only'}}
 CASES = [  # (case, change to CLEAN, text the one failure must contain)
     ('clean', {}, ''),
@@ -416,6 +423,9 @@ CASES = [  # (case, change to CLEAN, text the one failure must contain)
     ('override-bad-value', {'overrides': dict(CLEAN['overrides'], **{'fx-pre': 'name_only'})}, 'value "name_only" is not one of'),
     ('conditional-hidden', {'overrides': dict(CLEAN['overrides'], **{'fx-cond': 'user-invocable-only'})}, 'hides "fx-cond" as'),
     ('long-when-to-use', {'wtu': 'x' * desc_max}, 'description + when_to_use'),
+    ('description-one-over', {'wtu': 'x' * (desc_max - len('Fixture conditional skill.'))}, 'description + when_to_use %d chars' % (desc_max + 1)),
+    ('own-skill-bytes', {'body': 'x' * body_max + '\n'}, 'an own skill holds at most'),
+    ('own-skill-lines', {'body': 'x\n' * lines_max}, 'an own skill holds at most'),
 ]
 def write(rel, text):
     p = os.path.join(out, rel)
@@ -424,7 +434,7 @@ def write(rel, text):
         fh.write(text)
 for case, change, want in CASES:
     c = dict(CLEAN, **change)
-    write(case + '/skills/own/fx-pre/SKILL.md', PRE % c['pre'])
+    write(case + '/skills/own/fx-pre/SKILL.md', PRE % (c['pre'], c['body']))
     write(case + '/skills/own/fx-cond/SKILL.md', COND % c['wtu'])
     write(case + '/agents/own/fx-agent.md', AGENT % c['skills'])
     write(case + '/global/settings.json', json.dumps({'skillOverrides': c['overrides']}))
@@ -432,7 +442,7 @@ print('\n'.join('%s\t%s' % (case, want) for case, _, want in CASES))   # only af
 PY
 fxbad=""; fxn=0
 while IFS=$'\t' read -r fxcase fxwant; do
-  fxout=$(python3 -I "$WORK/frontmatter.py" "$WORK/fixtures/$fxcase" "$SKILL_DESC_MAX" "fx-ext") && fxrc=0 || fxrc=$?
+  fxout=$(python3 -I "$WORK/frontmatter.py" "$WORK/fixtures/$fxcase" "$SKILL_DESC_MAX" "fx-ext" "$SKILL_BODY_MAX" "$SKILL_LINES_MAX") && fxrc=0 || fxrc=$?
   fxprobs=$(printf '%s\n' "$fxout" | tail -n +2 | grep -c . || true)
   if [ "$fxcase" = clean ]; then
     [ "$fxrc" -eq 0 ] || fxbad="$fxbad clean(exit $fxrc)"
@@ -442,7 +452,7 @@ while IFS=$'\t' read -r fxcase fxwant; do
       fxbad="$fxbad $fxcase(exit $fxrc, $fxprobs problems)"
     fi
   fi
-done < <(python3 -I "$WORK/frontmatter-fixtures.py" "$WORK/fixtures" "$SKILL_DESC_MAX")
+done < <(python3 -I "$WORK/frontmatter-fixtures.py" "$WORK/fixtures" "$SKILL_DESC_MAX" "$SKILL_BODY_MAX" "$SKILL_LINES_MAX")
 if [ -z "$fxbad" ] && [ "$fxn" -gt 0 ]; then ok "frontmatter fixtures: clean tree passes, $fxn broken copies each fail with their one problem"
 else fail "frontmatter fixtures: check 9 misjudged:${fxbad:- no fixtures generated}"; fi
 

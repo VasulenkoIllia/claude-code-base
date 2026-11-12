@@ -27,8 +27,8 @@ CLAUDE_HOME=${CLAUDE_HOME:-$HOME/.claude}
 VIS_CACHE=${VIS_CACHE:-$REPO/local/repo-visibility.tsv}
 NVM_HOOK=$REPO/hooks/nvm-env.sh
 NODE_STD=$REPO/skills/own/new-project/node_std.py   # the Node standard of the repo's versions.json
-BIG=9216        # bytes; Standard/Pro budget for a project instruction file (plan 5.2)
-MEM_FILE=5120   # bytes; memory file budget (plan 5.2)
+BIG=15360       # bytes; the limit of the global rule for a project instruction file («rules and facts only, ~15 KB»); doctor.sh warns from twice that
+MEM_FILE=5120   # bytes; the limit of the global rule for a memory file (≤5 KB); doctor.sh warns about them in an active project
 MEM_INDEX=10    # lines; MEMORY.md budget (plan 5.2)
 export GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0
 
@@ -525,7 +525,7 @@ column -t -s $'\t' < "$T2"
 cat <<EOF
 #
 # == 3. flags (only folders with at least one) ==
-# GENERIC: old 'Project Agent Operating Standard' copy; BIG: > 9 KB; EMPTY; VISIBLE: untracked and not ignored;
+# GENERIC: old 'Project Agent Operating Standard' copy; BIG: > 15 KB; EMPTY; VISIBLE: untracked and not ignored;
 # AGENTS-NOT-LOADED; ANCESTOR-CLAUDE; NESTED:n (CLAUDE.md/AGENTS.md below the root, depth <= 4);
 # NODE-MISSING; NODE<ENGINES / NODE!=DOCKER (effective Node major vs engines minimum / Dockerfile);
 # the standard (node_std.py, oldest Node of .nvmrc, Docker and CI): NODE-EOL:n (out of support or within 6 months of it),

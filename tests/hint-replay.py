@@ -8,11 +8,13 @@ Usage (from the repo root): python3 -I tests/hint-replay.py [--days 60] [--hook 
 Historical mode: every Bash call with "push" or "pr create" in the command (main sessions and subagents) goes to the
 hook as stdin JSON with its real result: PostToolUse with stdout and stderr when it succeeded, PostToolUseFailure when it failed (the
 hook is wired to PostToolUse only, so that event must stay silent); a subagent's call carries its agent_id. Every
-compaction (a compact_boundary record) goes as SessionStart with source "compact", a subagent's with its agent_id. The
+compaction (a compact_boundary record) goes as SessionStart with source "compact"; a subagent's too, with no agent_id,
+as Claude Code sends it (docs/compat.md, 2026-11-11). The
 expected outcome comes from the hook's rules written again in Python (expect() in tests/hint_common.py): the push hint
 for a successful main session call whose command runs git [-c x | -C dir]... push, not a dry run, with no failed push in
 the output; the PR hint when such a call runs gh [-R repo]... pr create with no gh pr merge, and its output shows a new
-PR; the compaction hint for a main session compaction; silence otherwise. --fast N: also N other Bash calls
+PR; the compaction hint for every compaction, a subagent's own too (the hook cannot tell it from the main session's:
+"compact subagent hint" in the counts); silence otherwise. --fast N: also N other Bash calls
 through the hook. Whether Claude Code really delivers the hints: tests/hint-delivered.py.
 
 Safety: transcripts are only read; commands are never executed: they only reach the hook as stdin JSON. Output is

@@ -6,15 +6,17 @@
 # Prints "live = <tag>, drift N" and every drifted path: a managed file changed, missing or with another mode,
 # an extra file inside a managed skill folder, a missing git ignore line (settings.json is compared as normalized
 # JSON). Also: the hook tests (test-all.sh on the live hooks; it only feeds them sample input), whether the tag
-# still points at the installed commit, the error logs of dup-guard, doc-reminder, session-hint, bash-guard and node-std
-# (internal errors apart from ShapeDrift: hook input of an unknown shape), whether Claude Code delivered session-hint's hints in the
-# sessions of the last DELIVERY_DAYS days, hook failures of those days (tests/hint-delivered.py --doctor), project CLAUDE.md,
-# AGENTS.md and STATUS over STATE_MAX_KB in PROJECTS_DIR (default ~/WebstormProjects) and the docs there (STATUS length, a big
-# .md, a README behind the code, active projects with no instructions or card, the old template), the Node standard of the
+# still points at the installed commit, the error logs of dup-guard, doc-reminder, session-hint, bash-guard, push-allow and
+# node-std (internal errors apart from ShapeDrift: hook input of an unknown shape), whether Claude Code delivered session-hint's hints in the
+# sessions of the last DELIVERY_DAYS days, hook failures of those days (tests/hint-delivered.py --doctor), project CLAUDE.md
+# and AGENTS.md over STATE_MAX_KB in PROJECTS_DIR (default ~/WebstormProjects) and the docs there (a STATUS over STATUS_MAX_KB,
+# a big journal or .md, a README or a doc of an area behind the code, active projects with no instructions, card, «З чого
+# почати» or STATUS or with big memory files, the old template), the Node standard of the
 # projects there and when versions.json is due (the stack line: node_std.py of the live skill), the docs repo of docs-sync
 # and its error log (docs-sync.sh report: the registry, the connected projects, folders not in it, the push), the unmanaged
 # items the base never touches, and whether the scan inside a commit works: real commits in a throwaway repo (scripts/commit-scan-probe.sh).
-# Writes nothing outside a temporary folder. Destinations: CLAUDE_HOME, HOME_AGENTS, GIT_EXCLUDES, BIN_DIR (see scripts/lib.sh).
+# Writes nothing outside a temporary folder. One call over the network: gh about the origin of the docs repo (up to
+# DOCS_GH_SECS, 15 s; also with --skip-tests). Destinations: CLAUDE_HOME, HOME_AGENTS, GIT_EXCLUDES, BIN_DIR (see scripts/lib.sh).
 # Exit: 0 drift 0 and hook tests OK | 1 drift or failing hook tests | 2 no or unreadable manifest; a WARN never
 # changes it
 set -euo pipefail
@@ -33,7 +35,7 @@ while [ $# -gt 0 ]; do
   case $1 in
     --live) ;;
     --skip-tests) TESTS=0 ;;
-    -h | --help) sed -n '2,19p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "doctor.sh: unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -94,12 +96,14 @@ fi
 # dup-guard, doc-reminder and session-hint never block and stay silent on an internal error; bash-guard then asks
 # as before, also about text that does not run, and with a dead jq about every command. Each leaves a line in its error
 # log. doc-reminder, session-hint and bash-guard also log ShapeDrift for an input field they read that came with another
-# type or not at all, and go on as before; with no command to read bash-guard asks
+# type or not at all, and go on as before; with no command to read bash-guard asks. push-allow (PermissionRequest) on
+# an error or an input of another shape answers nothing: the permission prompt of a push comes as before
 if [ -d "$CLAUDE_HOME/logs" ] && [ ! -w "$CLAUDE_HOME/logs" ]; then
-  echo "  WARN: $(show_path CLAUDE_HOME/logs) is not writable: dup-guard, doc-reminder, session-hint, bash-guard and docs-sync cannot log their errors"
+  echo "  WARN: $(show_path CLAUDE_HOME/logs) is not writable: dup-guard, doc-reminder, session-hint, bash-guard, push-allow and docs-sync cannot log their errors"
 fi
 for h in dup-guard:"no duplicates" doc-reminder:"nothing to remind" session-hint:"no hint" \
     bash-guard:"an ask about text that does not run, with a dead jq about every command" \
+    push-allow:"a permission prompt for every push to a feature branch" \
     node-std:"no upgrade proposal"; do
   name=${h%%:*}; ERRLOG="$CLAUDE_HOME/logs/$name.err"
   if [ -e "$ERRLOG" ] && [ ! -w "$ERRLOG" ]; then
@@ -150,6 +154,7 @@ for f in "$PROJECTS_DIR"/*/CLAUDE.md "$PROJECTS_DIR"/*/AGENTS.md "$PROJECTS_DIR"
   if [ ! -f "$f" ] || [ ! -r "$f" ] || ! bytes=$(wc -c 2>/dev/null <"$f" | tr -d ' '); then   # a FIFO would hang wc
     echo "  WARN: project file not readable: ${f#"$PROJECTS_DIR"/}"; continue
   fi
+  case $f in */STATUS.md) continue ;; esac   # the size of a STATUS has its own, lower limit: STATUS_MAX_KB below
   [ "$bytes" -gt $((STATE_MAX_KB * 1024)) ] || continue
   big=$((big + 1))
   echo "  WARN: project file over $STATE_MAX_KB KB: ${f#"$PROJECTS_DIR"/}: $(((bytes + 1023) / 1024)) KB"
@@ -157,20 +162,27 @@ done
 if [ "$seen" -eq 0 ]; then
   echo "  WARN: project files not checked: no CLAUDE.md, AGENTS.md or STATUS in the folders of $PROJECTS_DIR"
 else
-  echo "  projects: $seen CLAUDE.md, AGENTS.md and STATUS files read in $PROJECTS_DIR, over $STATE_MAX_KB KB: $big"
+  echo "  projects: $seen CLAUDE.md, AGENTS.md and STATUS files read in $PROJECTS_DIR, CLAUDE.md and AGENTS.md over $STATE_MAX_KB KB: $big"
 fi
 if [ "$big" -gt 0 ]; then
-  echo "        (instruction files hold rules and facts, ~15 KB, no log; STATUS has the state on top, ~25 lines, history in an archive file)"
+  echo "        (instruction files hold rules and facts, ~15 KB, no log)"
 fi
 
-# Project docs (owner's decision 03.11.2026), WARNs only: STATUS over STATUS_MAX_LINES lines (the line names an archive
-# file under its folder, a path there with "status" and the word "archive", or none), an .md over MD_MAX_KB outside an
-# archive path, a README last changed over README_LAG_DAYS days and README_LAG_COMMITS commits before HEAD, a project with
-# commits or sessions in ACTIVE_DAYS days and no instruction file or no card («## Розмір»), the old template. A worktree
-# folder (a .git file) holds copies and a link may lead anywhere: both are skipped; the base itself needs no card. A repo
-# git cannot read gets its own WARN, so it does not pass for "nothing found" (an unreadable file: the section above)
-STATUS_MAX_LINES=60 MD_MAX_KB=200 README_LAG_DAYS=21 README_LAG_COMMITS=10 ACTIVE_DAYS=30
+# Project docs (owner's decisions 03.11.2026 and 11.11.2026), WARNs only. Lines of their own: an .md over MD_MAX_KB
+# outside an archive path, a README last changed over README_LAG_DAYS days and README_LAG_COMMITS commits before HEAD, a
+# project with commits or sessions in ACTIVE_DAYS days and no instruction file or no card («## Розмір»), the old template.
+# One "docs state" line per project, its items joined with "; ": a STATUS over STATUS_MAX_KB (bytes, not lines: a line may
+# hold kilobytes; the item names an archive file under its folder, a path there with "status" and the word "archive", or
+# none); and only in an active project, where a session pays for it: a working journal over JOURNAL_MAX_KB outside an
+# archive path and a doc of an area (deploy, schema, API, integrations) behind the code of that area, by the README's
+# limits (both: scripts/docs_state.py, with the names of hooks/doc_reminder_lib.py), no STATUS at all, memory files over
+# MEM_FILE_MAX_KB (the state belongs in STATUS), a card with no «З чого почати». A worktree folder (a .git file) holds copies and a link may lead
+# anywhere: both are skipped; the base itself needs no card. A repo git cannot read gets its own WARN, so it does not
+# pass for "nothing found" (an unreadable file: the section above)
+STATUS_MAX_KB=8 JOURNAL_MAX_KB=40 MD_MAX_KB=200 README_LAG_DAYS=21 README_LAG_COMMITS=10 AREA_WINDOW_DAYS=180
+ACTIVE_DAYS=30 MEM_FILE_MAX_KB=5
 OLD_TEMPLATE='Project Agent Operating Standard'
+DOCS_STATE="$HERE/docs_state.py" DOC_LIB="$SETUP_REPO/hooks"
 TIME_RE='"timestamp": *"[0-9T:.-]*Z"'   # the time of a transcript record
 # git of the project: never the caller's repo (a git hook exports GIT_DIR, and -C does not override it) and never one
 # above PROJECTS_DIR (a broken .git sends git looking upwards)
@@ -219,26 +231,47 @@ sessions() {
   echo "$n $none"
 }
 git_failed() { ngit=$((ngit + 1)); gitfail="${gitfail:+$gitfail, }$name"; }
-dseen=0 nskip=0 nstatus=0 nmd=0 nreadme=0 nbare=0 ncard=0 old=0 old_active="" ngit=0 gitfail="" notime=0
+item() { items="${items:+$items; }$1"; }
+memory_big() {   # how many memory files of the project are over MEM_FILE_MAX_KB
+  local m
+  m="$CLAUDE_HOME/projects/$(printf '%s' "$d" | sed 's/[^A-Za-z0-9]/-/g')/memory"
+  [ -d "$m" ] || { echo 0; return; }
+  { find "$m" -type f -size +"$((MEM_FILE_MAX_KB * 1024))"c 2>/dev/null || true; } | grep -c '' || true
+}
+state_check=1
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "  WARN: journals and area docs: not checked, no python3"; state_check=0
+elif [ ! -f "$DOCS_STATE" ] || [ ! -f "$DOC_LIB/doc_reminder_lib.py" ]; then
+  echo "  journals and area docs: not checked, no scripts/docs_state.py or hooks/doc_reminder_lib.py in $SETUP_REPO"; state_check=0
+fi
+dseen=0 nskip=0 nstatus=0 njournal=0 narea=0 nmd=0 nreadme=0 nbare=0 ncard=0 nnostatus=0 nmem=0 nstart=0 old=0
+old_active="" ngit=0 gitfail="" notime=0 statefail=""
 for d in "$PROJECTS_DIR"/*/; do
   d=${d%/}
   [ -d "$d" ] || continue
   if [ -L "$d" ] || [ -f "$d/.git" ]; then nskip=$((nskip + 1)); continue; fi
-  name=${d#"$PROJECTS_DIR"/}; dseen=$((dseen + 1))
+  name=${d#"$PROJECTS_DIR"/}; dseen=$((dseen + 1)); items="" has_status=0
   for s in STATUS.md docs/STATUS.md .claude/state/STATUS.md; do
     [ -f "$d/$s" ] || continue
-    n=$(grep -c '' 2>/dev/null <"$d/$s" || true)   # a last line with no newline counts too
-    [ -n "$n" ] && [ "$n" -gt "$STATUS_MAX_LINES" ] || continue
+    has_status=1
+    b=$(stat -L -f %z "$d/$s" 2>/dev/null) || continue   # the size needs no read access; -L: of the file a link leads to
+    [ "$b" -gt $((STATUS_MAX_KB * 1024)) ] || continue
     nstatus=$((nstatus + 1)); a=$(status_archive "$s")
-    echo "  WARN: STATUS over $STATUS_MAX_LINES lines: $name/$s: $n lines, archive: ${a:-none}"
+    item "STATUS $s $(((b + 1023) / 1024)) KB (archive: ${a:-none})"
   done
+  # one find for both sizes: an .md over MD_MAX_KB is a WARN of its own, a smaller one over JOURNAL_MAX_KB may be a journal
+  cand=""
   while IFS= read -r f; do
     rel=${f#"$d"/}
     ! archived "$rel" || continue
-    b=$(stat -f %z "$f" 2>/dev/null) || continue   # the size needs no read access
-    nmd=$((nmd + 1)); echo "  WARN: md file over $MD_MAX_KB KB: $name/$rel: $(((b + 1023) / 1024)) KB"
+    b=$(stat -f %z "$f" 2>/dev/null) || continue
+    if [ "$b" -gt $((MD_MAX_KB * 1024)) ]; then
+      nmd=$((nmd + 1)); echo "  WARN: md file over $MD_MAX_KB KB: $name/$rel: $(((b + 1023) / 1024)) KB"
+    else
+      cand="$cand$rel"$'\n'
+    fi
   done < <(find "$d" \( -name node_modules -o -name .git -o -name dist -o -name build -o -name .next -o -name vendor \
-    -o -path '*/.claude/worktrees' \) -prune -o -type f -name '*.md' -size +"$MD_MAX_KB"k -print 2>/dev/null | sort)
+    -o -path '*/.claude/worktrees' \) -prune -o -type f -name '*.md' -size +"$JOURNAL_MAX_KB"k -print 2>/dev/null | sort)
   nc=0
   if [ -d "$d/.git" ]; then   # a repo with no commit yet (HEAD names a branch that is not there) is no failure
     if ! pg rev-parse --git-dir >/dev/null; then
@@ -249,25 +282,52 @@ for d in "$PROJECTS_DIR"/*/; do
       git_failed
     fi
   fi
-  inst=0 card=0 tmpl=0
+  inst=0 card=0 start=0 tmpl=0 base=0 ns=0
   for f in CLAUDE.md AGENTS.md CLAUDE.local.md .claude/CLAUDE.md; do
     [ -f "$d/$f" ] || continue
     inst=1
     [ -r "$d/$f" ] || continue
     ! grep -q '^## Розмір' "$d/$f" 2>/dev/null || card=1
+    ! grep -q '^## З чого почати' "$d/$f" 2>/dev/null || start=1
     ! grep -qF "$OLD_TEMPLATE" "$d/$f" 2>/dev/null || tmpl=1
   done
-  if [ "$tmpl" = 0 ] && { [ "$inst$card" = 11 ] || [ "$d" -ef "$SETUP_REPO" ]; }; then continue; fi
-  ns=$(sessions); notime=$((notime + ${ns#* })); ns=${ns%% *}
+  if [ "$d" -ef "$SETUP_REPO" ]; then base=1; fi
+  # The sessions are read unless a commit already makes the project active and no line names their count
+  if [ "$nc" -eq 0 ] || [ "$tmpl" = 1 ] || { [ "$inst$card" != 11 ] && [ "$base" = 0 ]; }; then
+    ns=$(sessions); notime=$((notime + ${ns#* })); ns=${ns%% *}
+  fi
   if [ "$tmpl" = 1 ]; then
     old=$((old + 1)); [ $((nc + ns)) -eq 0 ] || old_active="${old_active:+$old_active, }$name"
   fi
-  [ $((nc + ns)) -gt 0 ] && ! [ "$d" -ef "$SETUP_REPO" ] || continue
-  if [ "$inst" = 0 ]; then
-    nbare=$((nbare + 1)); echo "  WARN: no instruction file in an active project: $name ($nc commits, $ns sessions in $ACTIVE_DAYS days)"
-  elif [ "$card" = 0 ]; then
-    ncard=$((ncard + 1)); echo "  WARN: no card («## Розмір») in an active project: $name ($nc commits, $ns sessions in $ACTIVE_DAYS days)"
+  if [ $((nc + ns)) -gt 0 ]; then   # an active project: what its sessions read and what they start from
+    if [ "$state_check" = 1 ]; then
+      if sout=$(printf '%s' "$cand" | python3 -I "$DOCS_STATE" "$DOC_LIB" "$d" "$README_LAG_DAYS" "$README_LAG_COMMITS" \
+        "$AREA_WINDOW_DAYS" 2>/dev/null); then
+        while IFS=$'\t' read -r kind a1 a2 a3 a4; do
+          case $kind in
+            journal)
+              b=$(stat -f %z "$d/$a1" 2>/dev/null) || continue
+              njournal=$((njournal + 1)); item "journal $a1 $(((b + 1023) / 1024)) KB" ;;
+            area) narea=$((narea + 1)); item "$a1 doc $a2 behind its area by $a3 commits and $a4 days" ;;
+          esac
+        done <<<"$sout"
+      else
+        statefail="${statefail:+$statefail, }$name"
+      fi
+    fi
+    if [ "$base" = 1 ]; then :
+    elif [ "$inst" = 0 ]; then
+      nbare=$((nbare + 1)); echo "  WARN: no instruction file in an active project: $name ($nc commits, $ns sessions in $ACTIVE_DAYS days)"
+    elif [ "$card" = 0 ]; then
+      ncard=$((ncard + 1)); echo "  WARN: no card («## Розмір») in an active project: $name ($nc commits, $ns sessions in $ACTIVE_DAYS days)"
+    elif [ "$start" = 0 ]; then
+      nstart=$((nstart + 1)); item "no «З чого почати» in the card"
+    fi
+    if [ "$has_status" = 0 ]; then nnostatus=$((nnostatus + 1)); item "no STATUS"; fi
+    nmembig=$(memory_big)
+    if [ "$nmembig" -gt 0 ]; then nmem=$((nmem + 1)); item "$nmembig memory files over $MEM_FILE_MAX_KB KB"; fi
   fi
+  [ -z "$items" ] || echo "  WARN: docs state: $name: $items"
 done
 if [ "$old" -gt 0 ]; then
   echo "  WARN: old template («${OLD_TEMPLATE}») in $old projects; of them active in $ACTIVE_DAYS days: ${old_active:-none}"
@@ -278,9 +338,12 @@ fi
 if [ "$notime" -gt 0 ]; then
   echo "  WARN: transcripts of $ACTIVE_DAYS days with no record time (a new Claude Code format?): $notime, their sessions not counted"
 fi
-echo "  docs: $dseen project folders, skipped $nskip (link, worktree copy); STATUS over $STATUS_MAX_LINES lines $nstatus, md over $MD_MAX_KB KB $nmd, README behind $nreadme, active without instructions $nbare, without a card $ncard, old template $old, git failed $ngit"
-if [ $((nstatus + nmd + nreadme + nbare + ncard + old)) -gt 0 ]; then
-  echo "        (each project in its own session: STATUS keeps the state on top, ~25 lines, history goes to STATUS-archive.md next to it; a journal keeps its current part, the rest goes to an archive file; README follows the code; an active project gets instructions and a card from /new-project; the old template goes)"
+if [ -n "$statefail" ]; then
+  echo "  WARN: journals and area docs not checked, scripts/docs_state.py failed (run it on the folder to see why): $statefail"
+fi
+echo "  docs: $dseen project folders, skipped $nskip (link, worktree copy); STATUS over $STATUS_MAX_KB KB $nstatus, journals over $JOURNAL_MAX_KB KB $njournal, area docs behind $narea, md over $MD_MAX_KB KB $nmd, README behind $nreadme, active without instructions $nbare, without a card $ncard, without «З чого почати» $nstart, without STATUS $nnostatus, with memory files over $MEM_FILE_MAX_KB KB $nmem, old template $old, git failed $ngit"
+if [ $((nstatus + njournal + narea + nmd + nreadme + nbare + ncard + nstart + nnostatus + nmem + old)) -gt 0 ]; then
+  echo "        (each project in its own session: STATUS keeps the state on top, up to 6 KB, history goes to STATUS-archive.md next to it; a journal keeps its current part, the rest goes to an archive file; README and the doc of an area follow the code; the state lives in STATUS, not in memory: a memory file holds one durable fact, up to $MEM_FILE_MAX_KB KB; the card starts with «З чого почати»: where STATUS is, the docs index, the commands; an active project gets instructions and a card from /new-project; the old template goes)"
 fi
 
 # The Node standard of the projects (owner's decisions 03.11.2026), WARNs only: node_std.py of the live skill reads its
@@ -316,6 +379,53 @@ elif [ -d "$DOCS_REPO/.git" ]; then
   t='~'
   echo "  WARN: docs repo: ${DOCS_REPO/#$HOME/$t} is there, docs-sync is not installed: each commit of a connected project prints a line (install the base again, or git config --remove-section hook.docs-sync and hook.docs-sync-push in those projects)"
 fi
+# The origin of the docs repo must be a private GitHub repo: docs-sync pushes the docs of client projects there in the
+# background with no ask, and nothing else looks at its visibility after init (owner's decision 11.11.2026). One read-only
+# call of gh for each repo a push goes to (every pushurl, else the url), as in scripts/git-hooks/pre-push; any answer but
+# PRIVATE, or none in DOCS_GH_SECS, is a WARN. Neither the URL (it may hold a token) nor the name of the repo is printed
+DOCS_GH_SECS=${DOCS_GH_SECS:-15}   # the variable: tests only
+docs_origin_line(){   # docs_origin_line <repo>: the line of its origin; nothing with no repo there or no origin
+  local urls url slug slugs="" vis
+  [ -d "$1/.git" ] || return 0
+  # where git push origin sends: every pushurl, else the url
+  urls=$(git -C "$1" remote get-url --push --all origin 2>/dev/null) || return 0
+  while IFS= read -r url; do
+    case $url in
+      git@github.com:*) slug=${url#git@github.com:} ;;
+      ssh://git@github.com/*) slug=${url#ssh://git@github.com/} ;;
+      https://github.com/*) slug=${url#https://github.com/} ;;
+      *) slug= ;;
+    esac
+    slug=${slug%/}; slug=${slug%.git}
+    if ! [[ $slug =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]]; then
+      echo "  WARN: docs repo origin: not a GitHub repo, its privacy is not checked: docs-sync pushes the docs of client projects there with no ask"
+      return 0
+    fi
+    case " $slugs " in *" $slug "*) ;; *) slugs="$slugs $slug" ;; esac
+  done <<<"$urls"
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "  WARN: docs repo origin: privacy not checked, no gh"
+    return 0
+  fi
+  for slug in $slugs; do
+    if command -v gtimeout >/dev/null 2>&1; then
+      vis=$(gtimeout "$DOCS_GH_SECS" gh repo view "github.com/$slug" --json visibility -q .visibility 2>/dev/null) || vis=
+    else   # the alarm stays over the exec and ends a gh that waits
+      vis=$(/usr/bin/perl -e 'alarm shift; exec @ARGV' "$DOCS_GH_SECS" gh repo view "github.com/$slug" --json visibility -q .visibility 2>/dev/null) || vis=
+    fi
+    case $vis in
+      PRIVATE) ;;
+      PUBLIC | INTERNAL)
+        echo "  WARN: docs repo origin: GitHub says $vis, not PRIVATE: docs-sync pushes the docs of client projects there in the background with no ask (make the repo private, or stop the push: git -C <docs repo> remote remove origin)"
+        return 0 ;;
+      *)
+        echo "  WARN: docs repo origin: privacy not checked (no answer of gh in $DOCS_GH_SECS s: gh, the network or the sign-in)"
+        return 0 ;;
+    esac
+  done
+  echo "  docs repo origin: PRIVATE on GitHub"
+}
+docs_origin_line "$DOCS_REPO"
 if [ -e "$ERRLOG" ] && [ ! -w "$ERRLOG" ]; then
   echo "  WARN: $(show_path CLAUDE_HOME/logs/docs-sync.err) is not writable: docs-sync cannot log its errors"
 fi

@@ -1,8 +1,6 @@
 name	kind	source	upstream_path	patch
-api-design	skill	2d515e4	skills/api-design	api-design.patch
 database-migrations	skill	2d515e4	skills/database-migrations	database-migrations.patch
 docker-patterns	skill	125d5e6	skills/docker-patterns	docker-patterns.patch
-documentation-lookup	skill	2d515e4	skills/documentation-lookup	-
 security-review	skill	2d515e4	skills/security-review	security-review.patch
 architect	agent	2d515e4	agents/architect.md	architect.patch
 code-reviewer	agent	2d515e4	agents/code-reviewer.md	code-reviewer.patch

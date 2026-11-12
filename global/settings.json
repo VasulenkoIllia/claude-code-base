@@ -66,10 +66,17 @@
     ],
     "ask": [
       "Bash(git push:*)",
+      "Bash(git -C * push)",
+      "Bash(git -C * push *)",
       "Bash(gh pr merge:*)",
       "Bash(ssh:*)",
       "Bash(scp:*)",
       "Bash(rsync:*)",
+      "Bash(gh repo create --public*)",
+      "Bash(gh repo create * --public*)",
+      "Bash(gh repo edit --visibility*)",
+      "Bash(gh repo edit * --visibility*)",
+      "mcp__terminal__run_in_terminal",
       "Bash(npx prisma migrate reset:*)",
       "Bash(npx prisma db push:*)",
       "Edit(~/.claude/CLAUDE.md)",
@@ -103,6 +110,12 @@
       "Read(//**/.env.prod)",
       "Read(//**/.env.github.secrets)",
       "Read(//**/.env.production.bak*)",
+      "Read(//**/.env.staging)",
+      "Read(//**/.env.stage)",
+      "Read(//**/.env.development)",
+      "Read(//**/.env.dev)",
+      "Read(//**/.env.test)",
+      "Read(//**/*.env)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
       "Read(~/.codex/auth.json)",
@@ -156,6 +169,18 @@
             "command": "\"$HOME\"/.claude/hooks/bash-guard.sh",
             "timeout": 15,
             "onFailure": "continue"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.claude/hooks/push-allow.sh",
+            "timeout": 15
           }
         ]
       }

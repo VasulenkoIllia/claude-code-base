@@ -16,7 +16,9 @@ TEXT = {'PostToolUse': 'session-hint: push done. If the next step is a different
                        'a fix of this push), ' + NEXT,
         'PullRequest': 'session-hint: PR opened. Start one background call, not a poll: `gh pr checks <number> --watch` '
                        'with run_in_background (the app wakes you only on failures, not on green). When it ends green, '
-                       'end the turn with the merge decision (app: wrap_up with reply buttons; CLI: a question).',
+                       'say in one line what gets merged into which branch and run `gh pr merge` right away: its '
+                       "permission prompt is the user's merge decision, so no question and no reply buttons before it "
+                       '(in a session that shows no permission prompts, ask before the merge instead).',
         'SessionStart': 'session-hint: the context was just compacted. Відповідай українською, також wrap_up, плани, '
                         'квізи. If the next step is a different task or feature, ' + NEXT}
 EVENT = {'PostToolUse': 'PostToolUse', 'PullRequest': 'PostToolUse', 'SessionStart': 'SessionStart'}   # of each text
@@ -88,16 +90,15 @@ def push_payload(c, result):
 
 
 def compact_payload(c):
-    p = {'session_id': c['sid'], 'transcript_path': c['file'], 'cwd': c['cwd'], 'hook_event_name': 'SessionStart',
-         'source': 'compact', 'model': 'claude-opus-5-5'}
-    if c['agent']:
-        p['agent_id'] = c['agent']
-    return p
+    """The SessionStart input of a compaction. A subagent's has no agent_id either: Claude Code sends the same fields
+    as for the main session (docs/compat.md, 2026-11-11), so the hook cannot tell the two apart."""
+    return {'session_id': c['sid'], 'transcript_path': c['file'], 'cwd': c['cwd'], 'hook_event_name': 'SessionStart',
+            'source': 'compact', 'model': 'claude-opus-5-5'}
 
 
 def expect(p):
     """The key in TEXT of the hint the hook must print for this payload, or None for silence (session-hint.sh's
-    rules)."""
+    rules). A subagent is known only by agent_id: its compaction comes without one and gets the hint."""
     if p.get('agent_id'):
         return None
     if p['hook_event_name'] == 'SessionStart':
@@ -201,28 +202,40 @@ def add_record(d, f, proj, path):
 
 
 def add_subagent_record(d, f):
-    """A subagent record: every session-hint text in it is extra."""
+    """A subagent record: its compaction, or session-hint texts. The texts of a SessionStart hint after the subagent's
+    own compaction go to that compaction: Claude Code runs SessionStart there with no agent_id (compact_payload()), so
+    the hook cannot stay silent. One exact text per compaction; every other text is extra (judge() in
+    hint-delivered.py), as is a push hint: PostToolUse does carry agent_id. A subagent file is one subagent, whatever
+    its records say; an older main file holds the records of several, told apart by agentId."""
+    agent = d.get('agentId') if isinstance(d.get('agentId'), str) and not f['sub'] else ''
+    if d.get('type') == 'system' and d.get('subtype') == 'compact_boundary':
+        f['sub_compactions'][agent].append({'ts': d['timestamp'], 'texts': []})
     a = d.get('attachment') if d.get('type') == 'attachment' else None
     if isinstance(a, dict) and a.get('type') == 'hook_additional_context':
-        f['sub_texts'] += [d['timestamp']] * len(hint_texts(a))
+        lines, own = hint_texts(a), f['sub_compactions'][agent]
+        if own and is_session_start(a.get('hookName')):
+            own[-1]['texts'] += lines
+        else:
+            f['sub_texts'] += [d['timestamp']] * len(lines)
 
 
 def scan_file(job):
     """The facts of one transcript. A main session: its first record, push calls and results, hint texts by tool call,
     compactions with the texts after them, session-hint runs and errors, unattributed errors and cancels, what was
-    seen, whether the file is idle. A subagent transcript: its first record and its session-hint texts (only lines
-    with one are parsed)."""
+    seen, whether the file is idle. A subagent transcript: its first record, its compactions with the SessionStart
+    texts after them and its other session-hint texts (only lines with a text or a compaction are parsed)."""
     proj, path = job
     sid, sub = session_of(proj, path)
     f = {'proj': proj, 'sid': sid, 'sub': sub, 'first': None, 'seq': 0, 'last_assistant': 0, 'idle': False,
          'answers': 0, 'answer_id': None, 'call_answer': {},
          'calls': {}, 'results': {}, 'result_seq': {}, 'hints': collections.defaultdict(list), 'compactions': [],
-         'stray': [], 'errors': [], 'runs': [], 'unattributed': [], 'sub_texts': [], 'seen': collections.Counter(),
-         'bad': 0, 'bad_files': 0}
+         'stray': [], 'errors': [], 'runs': [], 'unattributed': [], 'sub_texts': [],
+         'sub_compactions': collections.defaultdict(list), 'seen': collections.Counter(), 'bad': 0, 'bad_files': 0}
     try:
         with open(path, 'r', encoding='utf-8', errors='replace') as fh:
             f['idle'] = time.time() - os.fstat(fh.fileno()).st_mtime > IDLE_S
-            lines = (line for i, line in enumerate(fh) if i == 0 or 'session-hint:' in line) if sub else fh
+            lines = (line for i, line in enumerate(fh)
+                     if i == 0 or 'session-hint:' in line or 'compact_boundary' in line) if sub else fh
             for d in records(lines, f, dedup=True):
                 f['first'] = f['first'] or d['timestamp']
                 if sub or d.get('isSidechain'):

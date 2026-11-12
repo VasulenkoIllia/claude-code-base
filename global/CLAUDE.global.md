@@ -21,7 +21,7 @@
 
 ## Git
 - Commit/push only when I ask in the current message. No deploy, no force-push, no history rewrites, no merge into main without a separate request. Subagents don't commit.
-- Commits only under my git identity: no Co-Authored-By, "Generated with Claude Code", or mentions of Claude/AI in commits, PRs, code, README.
+- No mentions of Claude/AI in commits, PRs, code, README; commits only under my git identity.
 - Message style as in the repo's `git log -20`; if there is no style, one line in Ukrainian «область: що зроблено».
 - A develop or dev branch exists → work from it unless the project or I say otherwise (e.g. a hotfix from main); main/prod only after my OK.
 - Before a commit show the staged list. No `git add -A`/`git add .`: add only files changed in this session.
@@ -40,7 +40,7 @@
 ## Done = verified
 - Don't claim «готово / нуль помилок / готово до тестування» until the project's gates pass (typecheck, lint, tests, build; for a push green CI; for a deploy health). "Renders without errors" ≠ "matches the spec/design"; name deviations explicitly.
 - Docs are part of done: update the affected docs (setup, env, commands, API, integrations, behavior, schema, workflow, deploy), also those outside git, before a commit, push or deploy. Can't write them (worktree, hook, access): ask me at once via AskUserQuestion, not in the summary line.
-- Project CLAUDE.md/AGENTS.md: rules and facts only, ~15 KB, no log. STATUS: state on top, ~25 lines, history in an archive; update at a pause or closed step. One fact in one place; no living facts in docs (counts, SHAs, push state, line numbers): point to the file or command.
+- Project CLAUDE.md/AGENTS.md: rules and facts only, ~15 KB, no log. STATUS: state on top, ≤6 KB, history in an archive; update at a pause or closed step. One fact in one place; no living facts in docs (counts, SHAs, push state, line numbers): point to the file or command.
 - Package manager per lockfile, Node per .nvmrc.
 - Summary after changes: `Змінено: … · Перевірено: … · Не перевірено/не зроблено: … · Ризики: … · Документація: файли/не зачеплено, бо … · Коміт/пуш: … · Міграції/env: … · Сервер: потрібне оновлення/ні`.
 - After an API error or a resumed session, first briefly restate the last unfinished instruction.
@@ -61,9 +61,9 @@
 
 ## Shell and tools (macOS, zsh)
 - Edits via Edit/Write; bash/python only for bulk edits, not by line number; say so.
-- Quote globs (`--include='*.ts'`). Don't name variables status/path/prompt. No GNU `timeout` (there is `gtimeout`). Don't wait in sleep loops: CI via `gh run watch`, the rest via run_in_background + Monitor.
+- Quote globs (`--include='*.ts'`). Don't name variables status/path/prompt. Don't wait in sleep loops: CI via `gh run watch`, the rest via run_in_background + Monitor.
 - Long tasks in the background with a log path; a checkpoint (what was started, pid, next step) in `docs/STATUS.md` if git ignores it or there is no repo, else in `.claude/state/STATUS.md`.
-- Python only via `uv run --with <pkg>==<v> python3 -I script.py`; never pip into the system Python, never `--break-system-packages`.
+- Python with packages only via `uv run --with <pkg>==<v> python3 -I script.py`; never pip into the system Python, never `--break-system-packages`.
 - Long output: `cmd > <log> 2>&1; echo exit=$?; tail -n 80 <log>`.
 - Library docs via Context7. After 2 network errors to one host, change the method or ask.
 

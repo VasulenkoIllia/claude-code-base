@@ -32,7 +32,7 @@ esac
 [ $# -le 1 ] || { echo "too many arguments" >&2; exit 2; }
 
 HOOKS=(bash-guard.sh secret-guard.sh nvm-env.sh test-hooks.sh extra-tests.sh secret-tests.sh test-all.sh)
-ECC_SKILLS=(api-design database-migrations docker-patterns documentation-lookup security-review)
+ECC_SKILLS=(database-migrations docker-patterns security-review)
 ECC_AGENTS=(architect code-reviewer database-reviewer react-reviewer security-reviewer typescript-reviewer)
 ANTHROPIC_AGENTS=(silent-failure-hunter)
 UNMANAGED_SKILLS=(graphify synced)

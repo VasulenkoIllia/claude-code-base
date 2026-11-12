@@ -3,6 +3,7 @@ name: typescript-reviewer
 description: Expert TypeScript/JavaScript code reviewer specializing in type safety, async correctness, Node/web security, and idiomatic patterns. Use when a change touches types, DTOs, public contracts or async code in TypeScript/JavaScript.
 tools: Read, Grep, Glob, Bash
 model: sonnet
+effort: xhigh
 ---
 
 ## Prompt Defense Baseline

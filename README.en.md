@@ -9,9 +9,9 @@ A Claude Code setup for macOS: global rules, guard hooks, path-scoped rules, ski
 | Folder | What | Installed to |
 |---|---|---|
 | `global/` | global rules, `settings.json` with hooks and permissions, `home-agents.md`, git ignore lines | `~/.claude/CLAUDE.md`, `~/.claude/settings.json`, `~/AGENTS.md`, `~/.config/git/ignore` (lines only added) |
-| `hooks/` | bash-guard (asks about or stops risky commands: data loss, skipping git hooks, a changed author, secrets in a commit), secret-guard (a secret in a prompt), commit-leaks (gitleaks in every commit, git runs it), dup-guard, doc-reminder, session-hint, node-std, nvm-env, docs-sync; tests in `test-all.sh` | `~/.claude/hooks/` |
+| `hooks/` | bash-guard (asks about or stops risky commands: data loss, skipping git hooks, a changed author, secrets in a commit), secret-guard (a secret in a prompt), commit-leaks (gitleaks in every commit, git runs it), push-allow (a push of a feature branch with no prompt), dup-guard, doc-reminder, session-hint, node-std, nvm-env, docs-sync; tests in `test-all.sh` | `~/.claude/hooks/` |
 | `rules/own/` | rules that load when Claude touches files matching their `paths:` (backend, frontend, databases, deploy, dependencies, clean code, demos) | `~/.claude/rules/` |
-| `skills/` | new-project (a project from the standard: Node, pnpm, Docker), client-tz (a spec and estimate in Word), time-register (a register of session hours and estimates), 5 ECC skills | `~/.claude/skills/` |
+| `skills/` | new-project (a project from the standard: Node, pnpm, Docker), client-tz (a spec and estimate in Word), time-register (a register of session hours and estimates), 3 ECC skills | `~/.claude/skills/` |
 | `agents/` | reviewers: code-reviewer, security-reviewer, typescript-reviewer, react-reviewer, database-reviewer, architect (ECC), silent-failure-hunter (Anthropic) | `~/.claude/agents/` |
 | `tools/` | claude-time (session hours per project and task), claude-metrics (work metrics before and after releases) | `~/bin/` |
 | `vendor/ecc/` | where each ECC skill and agent came from, local changes (`patches/`) | `ECC-PIN.md` in `~/.claude/` |
@@ -38,7 +38,7 @@ The header of each hook, script and tool says what it does. The list of managed 
 
   Then add the two lines `brew info nvm` suggests to `~/.zshrc` (`export NVM_DIR="$HOME/.nvm"` and the line that loads `/opt/homebrew/opt/nvm/nvm.sh`) and open a new terminal: the first load creates `~/.nvm/nvm.sh` itself. Check: `[ -s ~/.nvm/nvm.sh ] && echo ok` prints `ok`.
 - For `/new-project` also `brew install uv osv-scanner` and Docker Desktop.
-- Context7 for library docs (the global rules and the documentation-lookup skill call it): the Context7 connector in claude.ai (Settings, Connectors), or in the CLI `claude mcp add --scope user --header "Authorization: Bearer <key>" --transport http context7 https://mcp.context7.com/mcp` with a key from context7.com. Without it Claude takes library docs from the model's memory.
+- Context7 for library docs (the global rules call it): the Context7 connector in claude.ai (Settings, Connectors), or in the CLI `claude mcp add --scope user --header "Authorization: Bearer <key>" --transport http context7 https://mcp.context7.com/mcp` with a key from context7.com. Without it Claude takes library docs from the model's memory.
 
 ## First install
 
