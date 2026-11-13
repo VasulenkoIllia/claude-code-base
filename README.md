@@ -10,7 +10,7 @@ English: [README.en.md](README.en.md).
 |---|---|---|
 | `global/` | глобальні правила, `settings.json` з хуками й дозволами, `home-agents.md`, рядки git ignore | `~/.claude/CLAUDE.md`, `~/.claude/settings.json`, `~/AGENTS.md`, `~/.config/git/ignore` (рядки лише дописуються) |
 | `hooks/` | bash-guard (питає чи не пускає небезпечні команди: знищення даних, обхід git-хуків, підміну автора, секрети в коміті), secret-guard (секрет у промпті), commit-leaks (gitleaks у кожному коміті, його запускає git), push-allow (push у feature-гілку без запиту), dup-guard, doc-reminder, session-hint, node-std, nvm-env, docs-sync; тести `test-all.sh` | `~/.claude/hooks/` |
-| `rules/own/` | правила, які вантажаться, коли Claude торкається файлів з їхніх `paths:` (backend, frontend, БД, deploy, залежності, чистий код, демо) | `~/.claude/rules/` |
+| `rules/own/` | правила, які вантажаться, коли Claude торкається файлів з їхніх `paths:` (backend, frontend, БД, deploy, залежності, чистий код, Python, демо) | `~/.claude/rules/` |
 | `skills/` | new-project (проєкт за стандартом: Node, pnpm, Docker), client-tz (ТЗ і кошторис у Word), time-register (реєстр часу сесій і оцінки), 3 скіли ECC | `~/.claude/skills/` |
 | `agents/` | рев'юери: code-reviewer, security-reviewer, typescript-reviewer, react-reviewer, database-reviewer, architect (ECC), silent-failure-hunter (Anthropic) | `~/.claude/agents/` |
 | `tools/` | claude-time (час сесій за проєктами й задачами), claude-metrics (метрики роботи до і після релізів) | `~/bin/` |

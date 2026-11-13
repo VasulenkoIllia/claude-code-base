@@ -10,7 +10,7 @@ A Claude Code setup for macOS: global rules, guard hooks, path-scoped rules, ski
 |---|---|---|
 | `global/` | global rules, `settings.json` with hooks and permissions, `home-agents.md`, git ignore lines | `~/.claude/CLAUDE.md`, `~/.claude/settings.json`, `~/AGENTS.md`, `~/.config/git/ignore` (lines only added) |
 | `hooks/` | bash-guard (asks about or stops risky commands: data loss, skipping git hooks, a changed author, secrets in a commit), secret-guard (a secret in a prompt), commit-leaks (gitleaks in every commit, git runs it), push-allow (a push of a feature branch with no prompt), dup-guard, doc-reminder, session-hint, node-std, nvm-env, docs-sync; tests in `test-all.sh` | `~/.claude/hooks/` |
-| `rules/own/` | rules that load when Claude touches files matching their `paths:` (backend, frontend, databases, deploy, dependencies, clean code, demos) | `~/.claude/rules/` |
+| `rules/own/` | rules that load when Claude touches files matching their `paths:` (backend, frontend, databases, deploy, dependencies, clean code, Python, demos) | `~/.claude/rules/` |
 | `skills/` | new-project (a project from the standard: Node, pnpm, Docker), client-tz (a spec and estimate in Word), time-register (a register of session hours and estimates), 3 ECC skills | `~/.claude/skills/` |
 | `agents/` | reviewers: code-reviewer, security-reviewer, typescript-reviewer, react-reviewer, database-reviewer, architect (ECC), silent-failure-hunter (Anthropic) | `~/.claude/agents/` |
 | `tools/` | claude-time (session hours per project and task), claude-metrics (work metrics before and after releases) | `~/bin/` |

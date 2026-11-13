@@ -1,7 +1,7 @@
 ---
 paths:
-  - "**/*{repository,Repository,repo,service,Service,store,Store,dao,queries}*.{ts,js,mjs,cjs}"
-  - "**/{db,database,repositories,services,seed,scripts,routes,core,jobs,cron}/**/*.{ts,js,mjs,cjs}"
+  - "**/*{repository,Repository,repo,service,Service,store,Store,dao,queries}*.{ts,js,mjs,cjs,py}"
+  - "**/{db,database,repositories,services,seed,scripts,routes,core,jobs,cron}/**/*.{ts,js,mjs,cjs,py}"
   - "lib/**/*.{ts,js,mjs,cjs}"
   - "**/src/lib/**/*.{ts,js,mjs,cjs}"
   - "**/{server,backend,app,api,bot,workers,modules}/**/lib/**/*.{ts,js,mjs,cjs}"

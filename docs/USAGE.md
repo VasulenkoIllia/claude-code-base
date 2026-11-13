@@ -38,9 +38,10 @@
 | Файл | Коли вантажиться | Що в ньому |
 |---|---|---|
 | clean-code.md | код .ts, .tsx, .js, .jsx, .py, .vue, .svelte та подібний | наявний хелпер перед новим; функція до 100 рядків, компонент до 200, файл до 400, вкладеність до 3; без зайвих шарів і мертвого коду; оптимізація лише після заміру |
-| backend.md | API, вебхуки, воркери, боти, парсери, cron | доступ, вебхуки, `response.ok`, ретраї, тести збою |
-| db-queries.md | репозиторії, сервіси, скрипти даних | індекси, N+1, keyset, EXPLAIN, outbox, пастки Prisma |
-| db-schema.md | `prisma/`, `migrations/`, `drizzle/`, `*.sql` | міграції без втрати даних, гроші, FK, CONCURRENTLY; `migrate dev` лише локально |
+| backend.md | API, вебхуки, воркери, боти, парсери, cron (`.ts`, `.js`, `.py`); весь код під `src/` Python-проєкту | доступ, вебхуки, `response.ok`, ретраї, тести збою |
+| db-queries.md | репозиторії, сервіси, скрипти даних (`.ts`, `.js`, `.py`) | індекси, N+1, keyset, EXPLAIN, outbox, пастки Prisma |
+| db-schema.md | `prisma/`, `migrations/`, `drizzle/`, `alembic/`, `*.sql` | міграції без втрати даних, гроші, FK, CONCURRENTLY; `migrate dev` лише локально; для Alembic CONCURRENTLY окремою ревізією в `autocommit_block()`, ревізію прочитати до `upgrade`, `stamp` лише після `current` |
+| python.md | будь-який `.py` | типи на публічних межах і env через один об'єкт налаштувань (у проєкті з `pyproject.toml`), валідація зовнішнього входу на межі, помилки без голого `except`, `raise_for_status()` і таймаути, async без блокуючих викликів, без змінюваних типових аргументів, значення в SQL лише параметрами |
 | deploy.md | Dockerfile, compose, workflows, `*.sh` | томи БД, теги образів, healthcheck, порти |
 | deps.md | `package.json` і lock-файли | перевірка нових пакетів, osv-scanner |
 | frontend.md | .tsx, .jsx, .vue, .html, .css | браузер на 390x844 і 1440x680, перевірка від 5 кроків у субагенті, стани екрана; правки клієнта з критерієм у числах |

@@ -33,7 +33,7 @@ SKILL_BODY_MAX=24000         # bytes of the SKILL.md of an own skill (skills/own
 SKILL_LINES_MAX=500          # lines of the SKILL.md of an own skill; the detail goes to a file next to it
 SKILL_EXTERNAL="graphify"    # skills outside the base (README, «Не керує»): allowed as skillOverrides keys, never in skills:
 RULE_MAX=2000                # bytes per path-scoped rule file (B2); ≈810 tokens of the English text (2.47 B/token, 14.10)
-RULES_TOTAL_MAX=13000        # bytes for all rule files together (B2 8500; B2.1 adds deps.md; B4 adds clean-code.md; unchanged at the language stage 14.10; 12 500 -> 13 000 on 03.11 for the move to pnpm in deps.md, owner's decision, ADR-002)
+RULES_TOTAL_MAX=15000        # bytes for all rule files together (B2 8500; B2.1 adds deps.md; B4 adds clean-code.md; unchanged at the language stage 14.10; 12 500 -> 13 000 on 03.11 for the move to pnpm in deps.md, owner's decision; 13 000 -> 15 000 on 13.11 for python.md, the Python parity of the audit plan, decisions Б13-Б16; ADR-002)
 RULE_GROUPS="own"
 RULE_PRIORITY_LINE="The project takes precedence. New and changed code only: don't rewrite or audit existing code, name a noticed violation in one line."
 
