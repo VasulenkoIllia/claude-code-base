@@ -447,14 +447,33 @@ fi
 # that does not read; a catalog.json that does not read (then the projects are not looked at); with a catalog, a
 # record file of Claude Code that does not read; and, with no catalog installed, the records Claude Code keeps of it in
 # ~/.claude/plugins: no install or rollback touches those files, the records are harmless and stay until removed by
-# hand. A key of a project's settings that is not a pack name is not printed (the file may come with a cloned repo)
+# hand. A key of a project's settings that is not a pack name is not printed (the file may come with a cloned repo).
+# Two more with a catalog (L2 probe, CLI 2.1.307 and 2.1.321): a project that declares a catalog named library in its own
+# settings makes Claude Code, once the project is trusted, register that name at the folder the project names and load
+# packs from there, also in the next session of another project; so a WARN names such projects (the key
+# extraKnownMarketplaces or its alias additionalMarketplaces, in any .claude/settings.json or settings.local.json up to
+# LIB_DEPTH levels under PROJECTS_DIR), and another one a record of Claude Code that is not "the folder
+# CLAUDE_HOME/packs" (a project outside PROJECTS_DIR can do the same; a record of a form doctor does not know counts
+# as well)
 LIB=library
+LIB_DEPTH=6   # <project>/.claude/worktrees/<name>/.claude/settings.json is that deep under PROJECTS_DIR
 CAT="$CLAUDE_HOME/packs/catalog.json"
 PLUG="$CLAUDE_HOME/plugins"
-rec_cat=false rec_packs=0 rec_bad=""
+rec_cat=false rec_packs=0 rec_bad="" rec_else=""
 if [ -e "$PLUG/known_marketplaces.json" ]; then
   # jq -n with input: an empty file (a write cut short) is an error as well, not "no record"
   rec_cat=$("$JQ" -n -r --arg c "$LIB" 'input | has($c)' "$PLUG/known_marketplaces.json" 2>/dev/null) || { rec_cat=unknown; rec_bad=known_marketplaces.json; }
+  if [ "$rec_cat" = true ]; then
+    if rec_at=$("$JQ" -n -r --arg c "$LIB" 'input[$c] | if type == "object" and (.source | type) == "object" and .source.source == "directory" and (.source.path | type) == "string" and ((.installLocation // "") | type) == "string" then .source.path, (.installLocation // .source.path) else error("another form") end' "$PLUG/known_marketplaces.json" 2>/dev/null); then
+      while IFS= read -r at; do
+        # Claude Code keeps the path as the settings spell it; one that is not absolute would be read against this folder
+        case $at in \~/*) at="$HOME/${at#??}" ;; /*) ;; *) at="" ;; esac
+        if [ -z "$at" ] || ! [ "$at" -ef "$CLAUDE_HOME/packs" ]; then rec_else=${at:-a path that is not absolute}; fi
+      done <<<"$rec_at"
+    else
+      rec_else="a record of another form"
+    fi
+  fi
 fi
 if [ -e "$PLUG/installed_plugins.json" ]; then
   rec_packs=$("$JQ" -n -r --arg s "@$LIB" '[(input.plugins // {}) | keys[] | select(endswith($s))] | length' "$PLUG/installed_plugins.json" 2>/dev/null) ||
@@ -502,10 +521,32 @@ if [ "$lib_state" = ok ] || [ "$lib_state" = gone ]; then
     echo "  WARN: library: pack $pk is enabled in $n project(s) ($projects), the catalog has no such pack: their sessions start without it and say nothing ($lib_fix, or install a tag that has the pack)"
   done <"$W/lib-use"
   if [ "$lib_state" = ok ]; then
+    : >"$W/lib-own"; lib_unread=""
+    # a session reads the settings of the folder it starts in: a worktree copy (the settings of its own branch), a
+    # worktree the app keeps inside a project, a package of a monorepo. Looked for LIB_DEPTH levels down, links not
+    # followed; a blank file is no settings, as for Claude Code
+    while IFS= read -r f; do
+      d=${f%/.claude/*}
+      grep -q '[^[:space:]]' "$f" 2>/dev/null || continue
+      if own=$("$JQ" -n -r --arg c "$LIB" 'input | [.extraKnownMarketplaces, .additionalMarketplaces] | map(select(. != null)) | if all(type == "object") then any(has($c)) else error("no object") end' "$f" 2>/dev/null); then
+        [ "$own" != true ] || printf '%s\n' "${d#"$PROJECTS_DIR"/}" >>"$W/lib-own"
+      else
+        lib_unread="${lib_unread:+$lib_unread, }${d#"$PROJECTS_DIR"/}/.claude/${f##*/}"
+      fi
+    done < <(find -H "$PROJECTS_DIR" -maxdepth "$LIB_DEPTH" \( -name node_modules -o -name .git -o -name .venv \) -prune -o \
+      -type f \( -path '*/.claude/settings.json' -o -path '*/.claude/settings.local.json' \) -print 2>/dev/null | LC_ALL=C sort)
+    [ -z "$lib_unread" ] || echo "  WARN: library: settings that do not read as JSON or hold a catalog key that is no object, whether they declare a catalog of their own is not known: $lib_unread"
+    if [ -s "$W/lib-own" ]; then
+      own=$(LC_ALL=C sort -u "$W/lib-own")
+      echo "  WARN: library: $(printf '%s\n' "$own" | grep -c .) project(s) declare a catalog named $LIB of their own ($(printf '%s\n' "$own" | paste -sd, - | sed 's/,/, /g')): once such a project is trusted, Claude Code loads packs from the folder it names and not from the base, also in the next session of another project (remove the key $LIB of extraKnownMarketplaces or additionalMarketplaces there; claude-pack enable refuses in such a project)"
+    fi
+    # the path comes from the settings of a project: only printable ASCII of it reaches the terminal
+    [ -z "$rec_else" ] || echo "  WARN: library: Claude Code has the catalog $LIB registered at $(printf '%s' "$rec_else" | LC_ALL=C tr -c '\040-\176' '?' | cut -c1-200), not at $(show_path CLAUDE_HOME/packs): a project declared a catalog of that name and sessions load packs from there, or Claude Code keeps its records in a new form (remove the key $LIB of extraKnownMarketplaces or additionalMarketplaces in that project; a session of a project without the key registers the catalog of the base again)"
     npk=$(printf '%s\n' "$lib_names" | grep -c . || true)
     names=$(printf '%s\n' "$lib_names" | paste -sd, - | sed 's/,/, /g')
     used=$(awk -F'\t' '$1 == "known" { printf "%s%s in %s (%s)", sep, $2, $3, $4; sep = "; " }' "$W/lib-use")
     case $rec_cat in true) reg=yes ;; unknown) reg="not known" ;; *) reg="not yet (a session registers the catalog on its own)" ;; esac
+    [ -z "$rec_else" ] || reg="at another folder"
     echo "  library: $npk pack(s) in $(show_path CLAUDE_HOME/packs)${names:+ ($names)}; registered by Claude Code: $reg; enabled: ${used:-in no project of $PROJECTS_DIR}"
   fi
 fi

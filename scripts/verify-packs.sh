@@ -8,7 +8,7 @@
 # settings.json registers the catalog `library` at ~/.claude/packs. With tools/claude-pack.py: it is a managed item, and
 # the ask rules on its enable and on edits of ~/.claude/packs are in settings.json (in auto mode the only prompt on
 # the way to an enabled pack)
-packprobs=""; packnote="no packs/ in this tree (the library is optional)"
+packprobs=""; packwarn=""; packnote="no packs/ in this tree (the library is optional)"
 mkt=$(jq -r '.extraKnownMarketplaces.library.source | select(.source == "directory") | .path // empty' global/settings.json 2>/dev/null || true)
 items=""
 if [ -f scripts/lib.sh ]; then
@@ -20,7 +20,8 @@ if [ -d packs ]; then
   if [ ! -f scripts/catalog.py ]; then
     packprobs="$packprobs [packs/ without scripts/catalog.py]"
   elif cout=$(python3 -I scripts/catalog.py --check . 2>&1); then
-    packnote=$(printf '%s\n' "$cout" | tail -n 1); cout=""   # details are for a catalog that fails only
+    # details are for a catalog that fails only; its warnings (evals of a pilot pack that did not run) get lines of their own
+    packnote=$(printf '%s\n' "$cout" | tail -n 1); packwarn=$(printf '%s\n' "$cout" | grep '^WARN: ' || true); cout=""
   else
     packprobs="$packprobs [catalog.py --check, below]"
   fi
@@ -43,7 +44,7 @@ if [ -f tools/claude-pack.py ]; then
   done
   packnote="$packnote; claude-pack is managed, its enable and edits of ~/.claude/packs ask"
 fi
-if [ -z "$packprobs" ]; then ok "packs and catalog: $packnote"
+if [ -z "$packprobs" ]; then ok "packs and catalog: $packnote"; if [ -n "$packwarn" ]; then printf '%s\n' "$packwarn" | details; fi
 else fail "packs and catalog:$packprobs"; if [ -n "${cout:-}" ]; then printf '%s\n' "$cout" | details; fi; fi
 
 # 23. catalog.py on made-up packs (tests/catalog-test.py, offline, a temp folder): a clean pack generates the catalog
