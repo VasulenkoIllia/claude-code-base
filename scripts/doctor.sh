@@ -14,7 +14,7 @@
 # почати» or STATUS or with big memory files, the old template), the Node standard of the
 # projects there and when versions.json is due (the stack line: node_std.py of the live skill), the docs repo of docs-sync
 # and its error log (docs-sync.sh report: the registry, the connected projects, folders not in it, the push), the packs
-# library when there is one (its catalog, the projects that enable a pack, what Claude Code still records of a catalog that is gone), the unmanaged
+# library when there is one (its catalog, the projects that enable a pack, the projects whose files call for a pack that is off, what Claude Code still records of a catalog that is gone), the unmanaged
 # items the base never touches, and whether the scan inside a commit works: real commits in a throwaway repo (scripts/commit-scan-probe.sh).
 # Writes nothing outside a temporary folder. One call over the network: gh about the origin of the docs repo (up to
 # DOCS_GH_SECS, 15 s; also with --skip-tests). Destinations: CLAUDE_HOME, HOME_AGENTS, GIT_EXCLUDES, BIN_DIR (see scripts/lib.sh).
@@ -454,7 +454,15 @@ fi
 # extraKnownMarketplaces or its alias additionalMarketplaces, in any .claude/settings.json or settings.local.json up to
 # LIB_DEPTH levels under PROJECTS_DIR), and another one a record of Claude Code that is not "the folder
 # CLAUDE_HOME/packs" (a project outside PROJECTS_DIR can do the same; a record of a form doctor does not know counts
-# as well)
+# as well).
+# And what to propose (L3, ADR-007): a second line `library:` names the packs whose file signals match a project that
+# neither enables the pack nor has it set to false (a false is the owner's refusal), by `claude-pack suggest --all` of
+# the repo (read-only, the root of each project only, no git call). Silent when there is nothing to propose or the repo
+# has no tools/claude-pack.py (the public version). "Nothing to propose" is said only when the tool looked: a tool that
+# fails (any exit but 0 and 3) is a WARN with its last line; with exit 3 the match lines hold and two more WARNs name
+# what it did not read, as a match there is not known: settings the jq pass above took for readable (a link, a
+# .claude folder that is one, over 1 MB, enabledPlugins that is no object) and signal files (a link, a pipe, over 1 MB,
+# a pattern that ran over its second)
 LIB=library
 LIB_DEPTH=6   # <project>/.claude/worktrees/<name>/.claude/settings.json is that deep under PROJECTS_DIR
 CAT="$CLAUDE_HOME/packs/catalog.json"
@@ -493,7 +501,7 @@ elif [ "$rec_cat" = true ] || [ "$rec_packs" -gt 0 ]; then
   echo "  WARN: library: no catalog in $(show_path CLAUDE_HOME/packs), but $(show_path CLAUDE_HOME/plugins) still names it (known_marketplaces.json: the catalog $LIB $([ "$rec_cat" = true ] && echo yes || echo no); installed_plugins.json: $rec_packs record(s) of its packs): left by a rollback to a tag without the library, harmless; no install touches these files, remove the records by hand if they are in the way"
 fi
 if [ "$lib_state" = ok ] || [ "$lib_state" = gone ]; then
-  : >"$W/lib-on"; lib_unread=""
+  : >"$W/lib-on"; : >"$W/lib-unread-names"; lib_unread=""
   for f in "$PROJECTS_DIR"/*/.claude/settings.local.json; do
     [ -f "$f" ] || continue
     d=${f%/.claude/settings.local.json}
@@ -504,6 +512,7 @@ if [ "$lib_state" = ok ] || [ "$lib_state" = gone ]; then
       done <<<"$on"
     else
       lib_unread="${lib_unread:+$lib_unread, }${d#"$PROJECTS_DIR"/}"
+      printf '%s\n' "${d#"$PROJECTS_DIR"/}" >>"$W/lib-unread-names"
     fi
   done
   [ -z "$lib_unread" ] || echo "  WARN: library: .claude/settings.local.json does not read as JSON, its packs are not known: $lib_unread"
@@ -548,6 +557,24 @@ if [ "$lib_state" = ok ] || [ "$lib_state" = gone ]; then
     case $rec_cat in true) reg=yes ;; unknown) reg="not known" ;; *) reg="not yet (a session registers the catalog on its own)" ;; esac
     [ -z "$rec_else" ] || reg="at another folder"
     echo "  library: $npk pack(s) in $(show_path CLAUDE_HOME/packs)${names:+ ($names)}; registered by Claude Code: $reg; enabled: ${used:-in no project of $PROJECTS_DIR}"
+    if [ -d "$PROJECTS_DIR" ] && [ -f "$SETUP_REPO/tools/claude-pack.py" ] && command -v python3 >/dev/null 2>&1; then
+      # exit 0: every project looked at; 3: something in some was not read, the match lines still hold; any other: no answer
+      if sg=$(CLAUDE_HOME="$CLAUDE_HOME" python3 -I "$SETUP_REPO/tools/claude-pack.py" suggest --all "$PROJECTS_DIR" </dev/null 2>"$W/lib-suggest-err"); then sgrc=0; else sgrc=$?; fi
+      if [ "$sgrc" != 0 ] && [ "$sgrc" != 3 ]; then
+        sg_why=$(tail -n 1 "$W/lib-suggest-err" | LC_ALL=C tr -c '\040-\176' '?' | cut -c1-400)
+        echo "  WARN: library: claude-pack suggest --all failed (exit $sgrc${sg_why:+: ${sg_why%\?}}): which packs to propose is not known"
+      else
+        # pack TAB count TAB projects, then one phrase per pack
+        togo=$(printf '%s\n' "$sg" | awk -F'\t' '$1 == "match" { n[$3]++; p[$3] = (p[$3] == "" ? "" : p[$3] ", ") $2 }
+          END { for (k in n) print k "\t" n[k] "\t" p[k] }' | LC_ALL=C sort | awk -F'\t' '{ printf "%s%s in %s (%s)", sep, $1, $2, $3; sep = "; " }')
+        # shellcheck disable=SC2088  # text for the reader, not a path to expand
+        [ -z "$togo" ] || echo "  library: file signals match, the pack is off and was not refused: $togo (in a session of the project the skill library-advisor proposes it; ~/bin/claude-pack suggest there shows the signal)"
+        sg_unread=$(printf '%s\n' "$sg" | awk -F'\t' '$1 == "unread" { print $2 }' | { grep -Fxv -f "$W/lib-unread-names" || true; } | paste -sd, - | sed 's/,/, /g')
+        sg_skipped=$(printf '%s\n' "$sg" | awk -F'\t' '$1 == "skipped" { printf "%s%s (%s)", sep, $2, $3; sep = "; " }')
+        [ -z "$sg_unread" ] || echo "  WARN: library: .claude or its settings.local.json is a link, the file is over 1 MB or its enabledPlugins is no object: claude-pack does not read it and what to propose there is not known: $sg_unread"
+        [ -z "$sg_skipped" ] || echo "  WARN: library: signal files of a pack that claude-pack did not read, whether the pack fits there is not known: $sg_skipped"
+      fi
+    fi
   fi
 fi
 

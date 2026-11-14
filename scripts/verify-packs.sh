@@ -1,4 +1,4 @@
-# verify-packs.sh: checks 22-24 of scripts/verify.sh, the packs library (split off for size). Sourced by verify.sh in
+# verify-packs.sh: checks 22-25 of scripts/verify.sh, the packs library (split off for size). Sourced by verify.sh in
 # the root of the tree under test: it uses ok, fail and details and the staged copy STAGE of that script.
 
 # 22. The packs library (ADR-007), all of it optional: a tree without packs/ (a tag up to v2026.11.32, the public
@@ -7,7 +7,9 @@
 # managed_items of scripts/lib.sh takes every pack as an item of its own and the catalog as three files, and
 # settings.json registers the catalog `library` at ~/.claude/packs. With tools/claude-pack.py: it is a managed item, and
 # the ask rules on its enable and on edits of ~/.claude/packs are in settings.json (in auto mode the only prompt on
-# the way to an enabled pack)
+# the way to an enabled pack). With packs/ and the tool: the advisor skill skills/own/library-advisor is there (gate 9
+# of catalog.py keeps the domains in its description equal to the packs; without the skill nothing proposes a pack),
+# and settings.json allows `claude-pack suggest`, the read-only first step of the advisor, without a prompt
 packprobs=""; packwarn=""; packnote="no packs/ in this tree (the library is optional)"
 mkt=$(jq -r '.extraKnownMarketplaces.library.source | select(.source == "directory") | .path // empty' global/settings.json 2>/dev/null || true)
 items=""
@@ -43,6 +45,15 @@ if [ -f tools/claude-pack.py ]; then
       packprobs="$packprobs [no ask rule $r in settings.json]"
   done
   packnote="$packnote; claude-pack is managed, its enable and edits of ~/.claude/packs ask"
+  if [ -d packs ]; then
+    if [ -f skills/own/library-advisor/SKILL.md ]; then packnote="$packnote; the advisor names the domains of the packs"
+    else packprobs="$packprobs [packs/ and claude-pack without skills/own/library-advisor/SKILL.md: nothing proposes a pack]"; fi
+    # shellcheck disable=SC2088  # the text of the settings rule, which Claude Code expands
+    for r in 'Bash(~/bin/claude-pack suggest)' 'Bash(~/bin/claude-pack suggest:*)'; do
+      jq -e --arg r "$r" '(.permissions.allow // []) | index($r) != null' global/settings.json >/dev/null 2>&1 ||
+        packprobs="$packprobs [no allow rule $r in settings.json: the advisor would ask on its read-only step]"
+    done
+  fi
 fi
 if [ -z "$packprobs" ]; then ok "packs and catalog: $packnote"; if [ -n "$packwarn" ]; then printf '%s\n' "$packwarn" | details; fi
 else fail "packs and catalog:$packprobs"; if [ -n "${cout:-}" ]; then printf '%s\n' "$cout" | details; fi; fi
@@ -59,8 +70,9 @@ if [ -f scripts/catalog.py ]; then
   fi
 fi
 
-# 24. claude-pack on a made-up home, catalog and project folders (tests/claude-pack-test.py, offline): list and info only
-# read; enable and disable write the one key and a journal line, keep the rest of the file, refuse what they must
+# 24. claude-pack on a made-up home, catalog and project folders (tests/claude-pack-test.py, offline): list, info and
+# suggest only read (suggest on five project folders: three need a pack, two need none); enable and disable write the
+# one key and a journal line, keep the rest of the file, refuse what they must
 if [ -f tools/claude-pack.py ]; then
   if ! cpout=$(python3 -I tools/claude-pack.py --help 2>&1) || [ -n "$(find tools -name __pycache__ -print -quit)" ]; then
     fail "claude-pack: tools/claude-pack.py --help (or a __pycache__ under tools/)"; printf '%s\n' "$cpout" | details
@@ -70,5 +82,18 @@ if [ -f tools/claude-pack.py ]; then
     ok "$(printf '%s\n' "$cpout" | tail -1)"
   else
     fail "claude-pack: tests/claude-pack-test.py"; printf '%s\n' "$cpout" | details
+  fi
+fi
+
+# 25. The packs column of project-doctor.sh on a made-up home and project folders (tests/project-doctor-pack-test.py,
+# offline): with a catalog the column, the flags PACK?<pack>, PACK-UNREAD, PACK-SKIPPED and PACK-ERR and the count; with
+# no catalog (the public version) no word of the packs
+if [ -f tools/claude-pack.py ] && [ -f scripts/project-doctor.sh ]; then
+  if [ ! -f tests/project-doctor-pack-test.py ]; then
+    fail "project-doctor: tests/project-doctor-pack-test.py is missing"
+  elif pdout=$(python3 -I tests/project-doctor-pack-test.py 2>&1); then
+    ok "$(printf '%s\n' "$pdout" | tail -1)"
+  else
+    fail "project-doctor: tests/project-doctor-pack-test.py"; printf '%s\n' "$pdout" | details
   fi
 fi

@@ -764,7 +764,7 @@ else
   fail "session-hint texts: tests/hint-text-test.py"; printf '%s\n' "$htout" | details
 fi
 
-# 22-24. The packs library (ADR-007), all of it optional: packs and catalog against the installer and the settings,
+# 22-25. The packs library (ADR-007), all of it optional: packs and catalog against the installer and the settings,
 # catalog.py and claude-pack on made-up packs and projects. Split off for size: scripts/verify-packs.sh, sourced here
 . "$REPO/scripts/verify-packs.sh"
 

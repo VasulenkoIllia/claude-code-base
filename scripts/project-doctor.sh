@@ -27,6 +27,10 @@ CLAUDE_HOME=${CLAUDE_HOME:-$HOME/.claude}
 VIS_CACHE=${VIS_CACHE:-$REPO/local/repo-visibility.tsv}
 NVM_HOOK=$REPO/hooks/nvm-env.sh
 NODE_STD=$REPO/skills/own/new-project/node_std.py   # the Node standard of the repo's versions.json
+# The packs library (ADR-007): the repo copy of claude-pack, only when the live home has a catalog; without one (the
+# public version) the column packs, its legend lines and the count of the summary are not printed
+PACK_TOOL=""
+if [ -f "$REPO/tools/claude-pack.py" ] && [ -f "$CLAUDE_HOME/packs/catalog.json" ]; then PACK_TOOL=$REPO/tools/claude-pack.py; fi
 BIG=15360       # bytes; the limit of the global rule for a project instruction file («rules and facts only, ~15 KB»); doctor.sh warns from twice that
 MEM_FILE=5120   # bytes; the limit of the global rule for a memory file (≤5 KB); doctor.sh warns about them in an active project
 MEM_INDEX=10    # lines; MEMORY.md budget (plan 5.2)
@@ -260,7 +264,7 @@ NODE_DEFAULT=$(bash -c 'export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh" --no-us
 case "$NODE_DEFAULT" in v[0-9]*) ;; *) NODE_DEFAULT="" ;; esac
 major() { local v=${1#v}; v=${v%%.*}; case "$v" in ''|*[!0-9]*) echo "" ;; *) echo "$v" ;; esac; }
 
-N=0 NGIT=0 NDIRTY=0 NNOTLOADED=0 NGENERIC=0 NVISIBLE=0 NNODE=0 NMISMATCH=0 NSTD=0 NSETBAD=0 NSECRET=0 NMEM=0
+N=0 NGIT=0 NDIRTY=0 NNOTLOADED=0 NGENERIC=0 NVISIBLE=0 NNODE=0 NMISMATCH=0 NSTD=0 NSETBAD=0 NSECRET=0 NMEM=0 NPACK=0
 row() {
   D=$1 FLAGS=""
   local name git=no branch=- dev=- vis=- dirty=- top
@@ -472,12 +476,33 @@ row() {
     if [ -e "$CLAUDE_HOME/agents/$n.md" ]; then flag "AGENT-OVERRIDES:$n"; fi
   done
 
+  # --- Packs of the library: the ones on here (claude-pack suggest, read-only; a worktree counts as its repository);
+  # PACK?: a file signal of the pack matches, the pack is off here and was not refused. "No pack to propose" is said
+  # only when the tool looked: PACK-UNREAD (it does not know the packs of the project), PACK-SKIPPED (a signal file
+  # was not read), PACK-ERR (no answer at all).
+  local packs=- pj pk
+  if [ -n "$PACK_TOOL" ]; then
+    pj=$(CLAUDE_HOME="$CLAUDE_HOME" python3 -I "$PACK_TOOL" suggest --project "$D" --json < /dev/null 2>/dev/null || true)
+    if pk=$(printf '%s' "$pj" | jq -r 'if has("enabled") then (.enabled | join("+")), (.suggest[].name | "?" + .), (if (.not_read | length) > 0 then "!skipped" else empty end) else "?", "!unread" end' 2>/dev/null) && [ -n "$pj" ]; then
+      packs=$(printf '%s\n' "$pk" | head -n 1); packs=${packs:--}
+      while IFS= read -r pk; do
+        case $pk in
+          \?[a-z0-9]*) flag "PACK$pk"; NPACK=$((NPACK + 1)) ;;
+          '!unread') flag PACK-UNREAD ;;
+          '!skipped') flag PACK-SKIPPED ;;
+        esac
+      done < <(printf '%s\n' "$pk" | tail -n +2)
+    else packs='?'; flag PACK-ERR; fi
+  fi
+
   case ",$FLAGS," in *,GENERIC:*) NGENERIC=$((NGENERIC + 1)) ;; esac
   case ",$FLAGS," in *,VISIBLE:*) NVISIBLE=$((NVISIBLE + 1)) ;; esac
   N=$((N + 1))
   printf '%s\t' "$name" "$git" "$branch" "$dev" "$vis" "$dirty" "$c" "$cc" "$cl" "$a" "$rules" "$agents" "$ptr" >> "$T1"
   printf '%s\n' "$ship" >> "$T1"
-  printf '%s\t' "$name" "$nvmrc" "$node" "$inst" "$eng" "$dock" "$pm" "$launch" "$docs" "$status" "$mem" "$lt" >> "$T2"
+  printf '%s\t' "$name" "$nvmrc" "$node" "$inst" "$eng" "$dock" "$pm" "$launch" "$docs" "$status" "$mem" >> "$T2"
+  if [ -n "$PACK_TOOL" ]; then printf '%s\t' "$packs" >> "$T2"; fi
+  printf '%s\t' "$lt" >> "$T2"
   printf '%s\n' "$pt" >> "$T2"
   if [ -n "$FLAGS" ]; then printf '%s\t%s\n' "$name" "$FLAGS" >> "$T3"; fi
 }
@@ -493,7 +518,9 @@ fi
 
 printf '%s\t' PROJECT GIT BRANCH DEV VIS DIRTY CLAUDE.md .c/CLAUDE.md CLAUDE.local AGENTS.md RULES A.load ptr > "$T1"
 printf '%s\n' ship >> "$T1"
-printf '%s\t' PROJECT .nvmrc node inst engines docker pm launch docs status memory settings.local > "$T2"
+printf '%s\t' PROJECT .nvmrc node inst engines docker pm launch docs status memory > "$T2"
+if [ -n "$PACK_TOOL" ]; then printf '%s\t' packs >> "$T2"; fi
+printf '%s\t' settings.local >> "$T2"
 printf '%s\n' settings >> "$T2"
 printf '%s\t%s\n' PROJECT FLAGS > "$T3"
 for d in "${DIRS[@]}"; do row "$d"; done
@@ -521,6 +548,7 @@ cat <<EOF
 # docs: Tn = n tracked files under docs/ (notes then go to .claude/state/); status: where STATUS is : state : age
 # memory: files / size in ~/.claude/projects/<dir>/memory; settings*: <state>:a<allow>/k<ask>/d<deny>[/e<env>][/o<other keys>]
 EOF
+if [ -n "$PACK_TOOL" ]; then echo "# packs: the packs of the library that are on here, joined with + (- none; ? not known, the flag says why)"; fi
 column -t -s $'\t' < "$T2"
 cat <<EOF
 #
@@ -535,10 +563,16 @@ cat <<EOF
 # SETTINGS*/LAUNCH: EMPTY|INVALID; LOCKFILES; MEM-FILE>5K:n, MEM-INDEX:nL (> 10 lines), MEM-INDEX-TRUNCATED;
 # SKILL-SHADOWED (global skill wins), AGENT-OVERRIDES (project agent wins); *-TRACKED-PUBLIC
 EOF
+if [ -n "$PACK_TOOL" ]; then
+  echo "# PACK?<pack> (a file signal of the pack matches, it is off here and was not refused: in a session of the project the"
+  echo "#   skill library-advisor proposes it); what to propose is not known: PACK-UNREAD (the settings of the project did"
+  echo "#   not read, or git did not name its repository), PACK-SKIPPED (a signal file is a link, a pipe or too big),"
+  echo "#   PACK-ERR (claude-pack did not answer); ~/bin/claude-pack suggest in the project says which"
+fi
 column -t -s $'\t' < "$T3"
 cat <<EOF
 #
 # summary: $N folders, $NGIT git; dirty: $NDIRTY; AGENTS-NOT-LOADED: $NNOTLOADED; GENERIC: $NGENERIC; VISIBLE: $NVISIBLE;
 #          NODE-MISSING: $NNODE; Node mismatch: $NMISMATCH; behind the Node standard: $NSTD; bad settings files: $NSETBAD;
-#          with secret-like entries: $NSECRET; memory over budget: $NMEM
+#          with secret-like entries: $NSECRET; memory over budget: $NMEM${PACK_TOOL:+; packs to propose: $NPACK}
 EOF

@@ -1,9 +1,12 @@
 """Checks of the packs library section of scripts/doctor.sh for tests/doctor-test.py (split off for size): silent
-with no catalog and no record of one; the line `library` with a catalog; the WARNs about a pack that a project enables
+with no catalog and no record of one; the line `library` with a catalog, and a second one for the projects whose files
+match the signal of a pack that they neither enable nor have set to false (with a WARN when claude-pack fails, and for
+the settings and signal files it did not read: "nothing to propose" is never said for them); the WARNs about a pack that a project enables
 and the catalog lacks, a settings.local.json or a catalog.json that does not read, the records Claude Code keeps
 of a catalog that is gone, a project (also a worktree of it) that declares a catalog named library of its own under
 either key of Claude Code, and a record of Claude Code that is not the folder of the base. Every other case of
-doctor-test.py runs with no catalog and proves the silence."""
+doctor-test.py runs with no catalog and proves the silence. A tree without tools/claude-pack.py (the public version)
+has no second line and none of its WARNs: the same steps prove that."""
 import json
 import os
 import shutil
@@ -29,6 +32,15 @@ ELSEWHERE = ('  WARN: library: Claude Code has the catalog library registered at
              'declared a catalog of that name and sessions load packs from there, or Claude Code keeps its records in a new '
              'form (remove the key library of extraKnownMarketplaces or additionalMarketplaces in that project; a session '
              'of a project without the key registers the catalog of the base again)')
+TO_PROPOSE = ('file signals match, the pack is off and was not refused: %s (in a session of the project the skill '
+              'library-advisor proposes it; ~/bin/claude-pack suggest there shows the signal)')
+SUGGEST_FAILED = ('  WARN: library: claude-pack suggest --all failed (exit 1: claude-pack: the catalog %s: the signals of '
+                  'the pack alpha have a shape this tool does not read; install the base again. Nothing is proposed): which '
+                  'packs to propose is not known')
+SUGGEST_UNREAD = ('  WARN: library: .claude or its settings.local.json is a link, the file is over 1 MB or its '
+                  'enabledPlugins is no object: claude-pack does not read it and what to propose there is not known: %s')
+SUGGEST_SKIPPED = ('  WARN: library: signal files of a pack that claude-pack did not read, whether the pack fits there is '
+                   'not known: %s')
 GONE = ('  WARN: library: no catalog in CLAUDE_HOME/packs, but CLAUDE_HOME/plugins still names it (known_marketplaces.json:'
         ' the catalog library %s; installed_plugins.json: %d record(s) of its packs): left by a rollback to a tag without'
         ' the library, harmless; no install touches these files, remove the records by hand if they are in the way')
@@ -60,7 +72,7 @@ def library_fails(tmp, data, t):
         p = subprocess.run(['/bin/bash', t.DOCTOR, '--live', '--skip-tests'], env=env, capture_output=True, text=True,
                            timeout=120)
         got = [ln for ln in p.stdout.splitlines() if ln.startswith(LINE)]
-        want = [LINE + line] if line else []
+        want = [LINE + x for x in ([line] if isinstance(line, str) else line or [])]
         fails.extend(t.check('library-' + name, p, t.PASS, warns, 0, claude))
         fails.extend([] if got == want else ['FAIL library-%s line:\n  got  %r\n  want %r' % (name, got, want)])
 
@@ -82,6 +94,49 @@ def library_fails(tmp, data, t):
     put(os.path.join(projects, 'copy', '.git'), 'gitdir: /nowhere\n')
     used = '2 pack(s) in CLAUDE_HOME/packs (alpha, beta); registered by Claude Code: yes; enabled: alpha in 2 (p, q)'
     step('in-use', [], used)
+    # packs with file signals: s and t have the file of alpha (two projects, one phrase), p has it too and alpha on, q
+    # has the file of beta and beta set to false (the owner's refusal), the worktree copy and the link are not projects;
+    # gamma is frozen and delta has no file signals: neither is proposed by a file
+    signals = catalog('alpha', 'beta')
+    signals['packs'] = [{'name': 'alpha', 'status': 'pilot', 'signals': {'filesRead': ['alpha.toml']}},
+                        {'name': 'beta', 'status': 'active', 'signals': {'filesRead': ['beta.toml']}},
+                        {'name': 'gamma', 'status': 'frozen', 'signals': {'filesRead': ['alpha.toml']}},
+                        {'name': 'delta', 'status': 'pilot', 'signals': {}},
+                        {'name': 'epsilon', 'status': 'pilot', 'signals': {'manifestDeps': [{'file': 'package.json', 'pattern': '"three"'}]}}]
+    put(cat, signals)
+    for project, name in (('s', 'alpha'), ('t', 'alpha'), ('t', 'beta'), ('p', 'alpha'), ('q', 'beta'), ('copy', 'alpha')):
+        put(os.path.join(projects, project, name + '.toml'), '')
+    five = used.replace('2 pack(s) in CLAUDE_HOME/packs (alpha, beta)', '5 pack(s) in CLAUDE_HOME/packs (alpha, beta, gamma, delta, epsilon)')
+    # the second line and its WARNs come from claude-pack of the tree; the public version has no such tool and says nothing
+    tool = os.path.isfile(os.path.join(os.path.dirname(os.path.dirname(t.DOCTOR)), 'tools', 'claude-pack.py'))
+
+    def propose(text):
+        return [five, TO_PROPOSE % text] if tool else five
+    step('to-propose', [], propose('alpha in 2 (s, t); beta in 1 (t)'))
+    put(os.path.join(projects, 't', '.claude', 'settings.local.json'), '{')   # not read: named, and not proposed there
+    torn = [UNREAD % 't', OWN_UNREAD % 't/.claude/settings.local.json']
+    step('to-propose-unread', torn, propose('alpha in 1 (s)'))
+    # settings the jq pass reads and claude-pack does not (enabledPlugins null in u, a link in v): named once more, as
+    # nothing is proposed there; a signal file that is a link (w) is not read, so "no match" there is not known
+    elsewhere = os.path.join(tmp, 'settings elsewhere.json')
+    put(elsewhere, {'enabledPlugins': {}})
+    put(os.path.join(projects, 'u', '.claude', 'settings.local.json'), {'enabledPlugins': None})
+    os.makedirs(os.path.join(projects, 'v', '.claude'))
+    os.symlink(elsewhere, os.path.join(projects, 'v', '.claude', 'settings.local.json'))
+    for project in ('u', 'v'):
+        put(os.path.join(projects, project, 'alpha.toml'), '')
+    os.makedirs(os.path.join(projects, 'w'))
+    os.symlink(elsewhere, os.path.join(projects, 'w', 'package.json'))
+    not_read = [SUGGEST_UNREAD % 'u, v', SUGGEST_SKIPPED % 'w (package.json: a link)'] if tool else []
+    step('to-propose-not-read', torn + not_read, propose('alpha in 1 (s)'))
+    # a catalog whose signals claude-pack does not read: the tool stops, and doctor says so in its words
+    put(cat, dict(signals, packs=[dict(signals['packs'][0], signals={'filesRead': 'alpha.toml'})] + signals['packs'][1:]))
+    step('suggest-fails', torn + ([SUGGEST_FAILED % os.path.realpath(cat)] if tool else []), five)
+    put(cat, signals)
+    for project in ('s', 't', 'u', 'v', 'w'):
+        shutil.rmtree(os.path.join(projects, project))
+    step('nothing-to-propose', [], five)
+    put(cat, catalog('alpha', 'beta'))
     # a record file of Claude Code that does not read is not "not registered yet"
     put(os.path.join(plug, 'known_marketplaces.json'), '{')
     step('records-unread', [RECORDS % 'known_marketplaces.json'], used.replace('Code: yes', 'Code: not known'))
