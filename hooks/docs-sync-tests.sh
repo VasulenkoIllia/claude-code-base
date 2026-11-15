@@ -1,11 +1,11 @@
 #!/bin/bash
 # docs-sync tests on temporary git fixtures (never on real projects or ~/project-docs): a docs repo with a bare origin,
-# projects with docs/ in .gitignore, _internal/ in .git/info/exclude and STATUS of .claude/state, a worktree, a husky
-# folder. Real commits and pushes: git itself runs the hooks from the keys connect writes. A made-up token goes through
-# the real gitleaks that docs-sync runs before a commit and a push. The env keys of a session are cleared for the
-# fixtures; one commit brings them back, with a git config of color.ui=always and a -diff attribute, to show the scan
-# depends on none of them. The project commits have their own author, the docs repo takes the owner's from the fixture
-# git config.
+# projects with docs/ in .gitignore, _internal/ in .git/info/exclude, STATUS of .claude/state and a brief/, a worktree,
+# a husky folder. Real commits and pushes: git itself runs the hooks from the keys connect writes. A made-up token goes
+# through the real gitleaks that docs-sync runs before a commit and a push. The env keys of a session are cleared for
+# the fixtures; one commit brings them back, with a git config of color.ui=always and a -diff attribute, to show the
+# scan depends on none of them. The project commits have their own author, the docs repo takes the owner's from the
+# fixture git config.
 # Run: bash hooks/docs-sync-tests.sh -> expects "SYNC OK". SYNC_TESTS_SHOW=1 also prints what each command said.
 H=$(cd "$(dirname "$0")" && pwd); f=0
 T=$(mktemp -d "${TMPDIR:-/tmp}/docs-sync-tests.XXXXXX") || exit 1
@@ -31,7 +31,7 @@ same() { cmp -s "$P/$1" "$DR/proj/$1"; }
 pushed() { local i; for i in $(seq 1 50); do
   [ "$(git -C "$DR" rev-parse HEAD)" = "$(git --git-dir="$T/origin.git" rev-parse -q --verify main)" ] && return 0
   sleep 0.2; done; return 1; }
-mirror() { (cd "$DR/proj" && find . -type f | sed 's#^\./##' | LC_ALL=C sort | tr '\n' ' '); }
+mirror() { (cd "$DR/${1:-proj}" && find . -type f | sed 's#^\./##' | LC_ALL=C sort | tr '\n' ' '); }   # mirror [folder]
 rnd() { head -c 4096 /dev/urandom | LC_ALL=C tr -dc "$1" | head -c "$2"; }
 hold() {   # hold <lock file> <flag file>: a process that holds the flock until it is killed
   python3 -I -c 'import fcntl, os, sys, time
@@ -351,6 +351,37 @@ run "$DS" connect "$L"; rm "$L/docs/a.md" && ln -s ../src/app.ts "$L/docs/a.md" 
   run git -C "$L" commit -q -m 'a link in git'
 has "l/docs: no longer a source (gone, in git, a link or a repo of its own), its copy stays (not a file in the project's HEAD: docs/a.md) in" 'a link in HEAD'
 [ -f "$DR/l/docs/a.md" ] || bad "a link in HEAD: the copy went: $out"
+
+# brief/ of /new-project (owner's decision 15.11.2026): mirrored by the rules of docs/ (no hidden or key file, a file
+# gitleaks does not read is counted); its copy stays when the first commit takes docs/ into git, when the folder is
+# emptied and when git clean takes it away; a brief/ in the project's git is no source
+B="$T/projects/bf"; git init -q -b main "$B" && printf '/brief\n' >"$B/.gitignore" && put "$B/docs/a.md" &&
+  put "$B/brief/chat.md" && put "$B/brief/scan/tz.md" && put "$B/brief/.DS_Store" && put "$B/brief/key.pem" &&
+  printf 'jpg\n' >"$B/brief/photo.jpg" || bad 'fixture: brief'
+run "$DS" connect --dry-run "$B"; has 'brief/ 3 files, 0.0 MB, not scanned 1 (jpg 1)' 'brief: dry run'
+run "$DS" connect "$B"; [ "$rc" = 0 ] && has 'bf: 4 copied, 0 deleted to' 'brief: connect' || bad "brief: connect: rc $rc: $out"
+[ "$(mirror bf)" = 'brief/chat.md brief/photo.jpg brief/scan/tz.md docs/a.md ' ] || bad "brief: mirror [$(mirror bf)]"
+grep -q "^bf	$B	mirror	docs/, brief/	.*	без скану: 1 (jpg 1)$" "$DR/registry.tsv" || bad "brief: the row: $(grep '^bf	' "$DR/registry.tsv")"
+git -C "$B" add -A && run git -C "$B" commit -q -m first
+has "bf/docs: in the project's git now, its copy is gone from" 'brief: docs into git'
+[ "$(mirror bf)" = 'brief/chat.md brief/photo.jpg brief/scan/tz.md ' ] && [ -z "$(git -C "$B" ls-files brief)" ] &&
+  grep -q "^bf	$B	mirror	brief/, docs/ in git	" "$DR/registry.tsv" || bad "brief: after the first commit: [$(mirror bf)] $(grep '^bf	' "$DR/registry.tsv")"
+put "$B/brief/chat.md" v2; code "$B"; run git -C "$B" commit -q -m 'brief changed'
+has 'bf: 1 copied, 0 deleted to' 'brief: a change' && cmp -s "$B/brief/chat.md" "$DR/bf/brief/chat.md" || bad "brief: a change: $out"
+mv "$B/brief" "$T/brief-kept" && mkdir "$B/brief"; code "$B"; run git -C "$B" commit -q -m 'brief emptied'
+has 'bf/brief: 3 of 3 copied files are gone from the source, nothing copied or deleted there' 'brief: emptied'
+rmdir "$B/brief" && mv "$T/brief-kept" "$B/brief" && git -C "$B" clean -q -fdx && [ ! -e "$B/brief" ] || bad 'fixture: git clean'
+code "$B"; run git -C "$B" commit -q -m 'after git clean'
+has "bf/brief: no longer a source (gone, in git, a link or a repo of its own), its copy stays (not a file in the project's HEAD: brief/chat.md, brief/photo.jpg, brief/scan/tz.md)" 'brief: after git clean'
+[ "$(mirror bf)" = 'brief/chat.md brief/photo.jpg brief/scan/tz.md ' ] || bad "brief: the copy after git clean: [$(mirror bf)]"
+BT="$T/projects/bt"; git init -q -b main "$BT" && printf 'docs/\n' >"$BT/.gitignore" && put "$BT/brief/x.md" && put "$BT/docs/a.md" &&
+  git -C "$BT" add -A && git -C "$BT" commit -q -m init || bad 'fixture: brief in git'
+run "$DS" connect "$BT"; [ "$rc" = 0 ] && [ "$(mirror bt)" = 'docs/a.md ' ] &&
+  grep -q "^bt	$BT	mirror	docs/, brief/ in git	" "$DR/registry.tsv" || bad "brief in git: rc $rc: $out: $(grep '^bt	' "$DR/registry.tsv")"
+# a project connected before brief/ was a source (g: STATUS mirrored, docs/ in git): its next commit takes brief/ too
+put "$G/brief/tz.md"; code "$G"; run git -C "$G" commit -q -m 'a brief in a connected project'
+has 'g: 1 copied, 0 deleted to' 'brief: a connected project' && cmp -s "$G/brief/tz.md" "$DR/g/brief/tz.md" &&
+  grep -q "^g	$G	mirror	brief/, .claude/state/STATUS\*.md, docs/ in git	" "$DR/registry.tsv" || bad "brief: a connected project: $out: $(grep '^g	' "$DR/registry.tsv")"
 pushed || bad 'the last pushes did not land'
 bad_lines=$(grep -vcE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z (SyncError|Kept|PushFailed|ShimExit|Error) ' "$LOG")
 [ "$bad_lines" = 0 ] || bad "error log: $bad_lines lines of another shape"

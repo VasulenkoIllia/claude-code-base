@@ -601,9 +601,10 @@ mirrored() {  # <folder>: the files of its copy in the docs repo, sorted, on one
 }
 
 case_docs_sync() {  # docs-sync as the skill runs it, in a docs repo of the scratch root with this tree's hook and the
-                    # base's global excludes: a new project connected after --init-git (docs/ before its first commit
-                    # and STATUS), the first commit takes docs/ into git and its copy goes; an adopted project; a folder
-                    # without git gets a registry row only
+                    # base's global excludes: a new project connected after --init-git (docs/ before its first commit,
+                    # STATUS and brief/), the first commit takes docs/ into git and its copy goes, the copy of brief/
+                    # stays (the scaffold's .gitignore keeps it out of git); an adopted project; a folder without git
+                    # gets a registry row only
   local ds="$HERE/hooks/docs-sync.sh" app="$ROOT/modes/ds-new" old="$ROOT/modes/ds-old" bare="$ROOT/modes/ds-nogit" \
     texts="$ROOT/modes/ds-texts.json" out state='.claude/state/STATUS-archive.md .claude/state/STATUS.md '
   unset GIT_CONFIG_COUNT
@@ -615,15 +616,16 @@ case_docs_sync() {  # docs-sync as the skill runs it, in a docs repo of the scra
   # shellcheck disable=SC2046  # new_args prints one word per line
   python3 -I "$SCAFFOLD" "$app" $(new_args) --name npt-ds > /dev/null && python3 -I "$SCAFFOLD" "$app" --init-git > /dev/null \
     || { echo "    no scaffold for docs-sync"; return 1; }
+  mkdir -p "$app/brief" && printf 'npt brief\n' > "$app/brief/chat.md" || return 1
   out=$("$ds" connect "$app" 2>&1) || { echo "    connect: $out"; return 1; }
-  [ "$(mirrored ds-new)" = "${state}docs/decisions.md docs/deployment.md docs/integrations.md " ] \
+  [ "$(mirrored ds-new)" = "${state}brief/chat.md docs/decisions.md docs/deployment.md docs/integrations.md " ] \
     || { echo "    the first snapshot: $(mirrored ds-new)"; return 1; }
   git -C "$app" config --get hook.docs-sync-push.command | grep -qF "$ds" || { echo "    connect wrote no hook keys"; return 1; }
   git -C "$app" add -A && out=$(git -C "$app" commit -q -m first 2>&1) || { echo "    the first commit: $out"; return 1; }
   grep -qF "ds-new/docs: in the project's git now, its copy is gone from" <<< "$out" || { echo "    the first commit: $out"; return 1; }
-  [ "$(mirrored ds-new)" = "$state" ] && [ -z "$(git -C "$app" ls-files .claude CLAUDE.local.md)" ] \
+  [ "$(mirrored ds-new)" = "${state}brief/chat.md " ] && [ -z "$(git -C "$app" ls-files .claude CLAUDE.local.md brief)" ] \
     || { echo "    after the first commit: $(mirrored ds-new)"; return 1; }
-  grep -q '^ds-new	[^	]*	mirror	.claude/state/STATUS\*\.md, docs/ in git	' "$DOCS_SYNC_REPO/registry.tsv" \
+  grep -q '^ds-new	[^	]*	mirror	brief/, .claude/state/STATUS\*\.md, docs/ in git	' "$DOCS_SYNC_REPO/registry.tsv" \
     || { echo "    the row: $(grep '^ds-new' "$DOCS_SYNC_REPO/registry.tsv")"; return 1; }
   put_project "$old" && printf '{"not_add": "нові сервіси", "hatches": "немає"}\n' > "$texts" \
     && python3 -I "$SCAFFOLD" "$old" --adopt --risk R1 --data V0 --stage pilot --tier T1 --texts "$texts" > /dev/null \

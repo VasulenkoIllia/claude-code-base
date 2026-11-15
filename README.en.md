@@ -175,7 +175,7 @@ Small cases:
 
 ## Docs outside git (docs-sync)
 
-If your projects keep docs outside git (`docs/` or `_internal/` in `.gitignore`, `STATUS*.md` in `.claude/state/`), docs-sync mirrors them into one private repo `~/project-docs`: after every commit and before every push of a connected project, with a gitleaks check before every commit of the docs repo. The project folder stays the source; do not edit the mirror. Needs git 2.54 or newer.
+If your projects keep docs outside git (`docs/` or `_internal/` in `.gitignore`, `STATUS*.md` in `.claude/state/`, the project brief in `brief/`), docs-sync mirrors them into one private repo `~/project-docs`: after every commit and before every push of a connected project, with a gitleaks check before every commit of the docs repo. The project folder stays the source; do not edit the mirror. Needs git 2.54 or newer.
 
 1. The docs repo, once:
 

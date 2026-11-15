@@ -2,7 +2,8 @@
 """docs-sync: a one-way mirror of the docs each project keeps outside git into one private docs repo (owner's
 decisions 03.11.2026: one repo for all projects, a git hook in the .git/config of each connected project, a push in the
 background, ~/project-docs on a private GitHub repo; 04.11.2026: the files gitleaks does not read are mirrored too, and
-counted). The project folder stays the source: nothing is written there but the hook keys of connect. What is mirrored
+counted; 15.11.2026: brief/, the owner's material of /new-project, is mirrored by the rules of docs/, client files
+among it). The project folder stays the source: nothing is written there but the hook keys of connect. What is mirrored
 and the registry: docs_sync_lib.py; the mirror, the scan, the commit and the push: docs_sync_repo.py; the lines of
 doctor.sh: docs_sync_report.py. Commands (docs-sync.sh passes them on):
   hook post-commit|pre-push  git runs it in a connected project: mirror its main folder, commit in the docs repo, push

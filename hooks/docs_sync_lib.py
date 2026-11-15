@@ -1,11 +1,13 @@
 """docs-sync, shared part (stdlib, 3.9+): what is mirrored from a project, the registry of projects and their docs
 (registry.tsv and the REGISTRY.md made from it) and the hook keys of a connected project. docs_sync.py,
 docs_sync_repo.py and docs_sync_report.py import it.
-Mirrored from the main folder of a project: docs/ and _internal/ with no tracked file and no repo of their own and the
-STATUS*.md files of .claude/state (outside git in every project through the global excludes); never hidden files,
-SKIP_DIRS, key files (SKIP_SUFFIXES, SKIP_PREFIXES), bytecode or a file over MAX_FILE_B. doc-reminder.py (local_docs)
-counts docs outside git by the same rule, with two differences on purpose: a folder reached through a link or with a
-repo of its own is not mirrored here (a link may lead anywhere; an own repo is a copy already).
+Mirrored from the main folder of a project: docs/, _internal/ and brief/ with no tracked file and no repo of their own
+and the STATUS*.md files of .claude/state (outside git in every project through the global excludes); never hidden
+files, SKIP_DIRS, key files (SKIP_SUFFIXES, SKIP_PREFIXES), bytecode or a file over MAX_FILE_B. doc-reminder.py
+(local_docs) counts docs outside git by the same rule, with three differences on purpose: a folder reached through a
+link or with a repo of its own is not mirrored here (a link may lead anywhere; an own repo is a copy already), and
+brief/ is mirrored here and not counted there (the owner's material /new-project starts from, the only copy of it
+outside git: owner's decision 15.11.2026; no doc that a commit has to bring up to date).
 """
 import collections
 import errno
@@ -17,7 +19,7 @@ import subprocess
 import time
 import urllib.parse
 
-SOURCES = ('docs', '_internal')
+SOURCES = ('docs', '_internal', 'brief')
 STATE = os.path.join('.claude', 'state')
 STATUS_RE = re.compile(r'STATUS.*\.md')   # the only files of STATE that are mirrored, at its top
 SKIP_DIRS = frozenset(('node_modules', 'graphify-out', '__pycache__'))
@@ -71,8 +73,9 @@ NO_FILE = "echo '%s: %s (no hook file)' >&2; :"   # git appends the hook's argum
 BAD_CHARS = re.compile('[\x00-\x1f\x7f\x85\u2028\u2029]')   # each would split a row of the registry or a line of the log
 README = """# Документація проєктів
 
-Дзеркало документів, які проєкти тримають поза git: `docs/` і `_internal/` без трекнутих файлів, `STATUS*.md` з
-`.claude/state`. Джерело правди лишається в теці проєкту. Тут нічого не правити: наступна синхронізація перезапише.
+Дзеркало документів, які проєкти тримають поза git: `docs/`, `_internal/` і `brief/` (бриф проєкту) без трекнутих
+файлів, `STATUS*.md` з `.claude/state`. Джерело правди лишається в теці проєкту. Тут нічого не правити: наступна
+синхронізація перезапише.
 
 - Після коміту чи перед пушем у підключеному проєкті хук `docs-sync` копіює документи основної теки проєкту сюди,
   комітить і пушить у фоні. Копії у worktree проєкту це чернетки, вони сюди не йдуть.
