@@ -42,7 +42,7 @@ Under the passport one line: «Назва `<назва>` стане назвою
 What the type brings comes from the standard as it is. Everything else goes into «Нестандартне» with its reason:
 - In the catalog, only what projects have already needed: `--module pgvector`, vectors in the same Postgres (image `pgvector/pgvector`, a first migration with `CREATE EXTENSION`; needs Postgres + Prisma; the alternative to name is a separate vector DB); `--module budget`, a spending limit on paid APIs such as LLM or embeddings (`src/budget.ts`, `PAID_API_BUDGET_USD`).
 - Not in the catalog: stays out of the scaffold, becomes a later task with a record in `docs/decisions.md`.
-- No type fits (mobile app, CMS site, n8n, desktop app): the passport says so and names the closest; no scaffold without the owner's word.
+- No type fits (mobile app, CMS site, n8n, desktop app): the passport says so and names the closest; no scaffold without the owner's word. A mobile or desktop app: first read `~/.claude/skills/new-project/stack-mobile.md`, the stack from the requirements for «Рекомендую» and «Нестандартне».
 
 ## 3. Quiz: forks only
 Only after the owner's answer to the passport. `Так, далі` confirms the passport and closes no fork: a recommendation with a sensible alternative still goes to the quiz. `Змінити` without details: ask what to change. An answer here or in the quiz that differs from the passport wins: name the change in one line. No fork left open and no `ide` question: no quiz, on to section 4.
