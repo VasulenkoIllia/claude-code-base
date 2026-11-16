@@ -1,4 +1,4 @@
-# verify-packs.sh: checks 22-25 of scripts/verify.sh, the packs library (split off for size). Sourced by verify.sh in
+# verify-packs.sh: checks 22-26 of scripts/verify.sh, the packs library (split off for size). Sourced by verify.sh in
 # the root of the tree under test: it uses ok, fail and details and the staged copy STAGE of that script.
 
 # 22. The packs library (ADR-007), all of it optional: a tree without packs/ (a tag up to v2026.11.32, the public
@@ -95,5 +95,19 @@ if [ -f tools/claude-pack.py ] && [ -f scripts/project-doctor.sh ]; then
     ok "$(printf '%s\n' "$pdout" | tail -1)"
   else
     fail "project-doctor: tests/project-doctor-pack-test.py"; printf '%s\n' "$pdout" | details
+  fi
+fi
+
+# 26. The scripts of the intake skill (.claude/skills/library-intake: a project skill of the base, never installed and
+# never exported) on made-up sources served by a stand-in gh (tests/library-intake-test.py, offline, a temp folder):
+# a fetch takes exactly the bytes of the pin and nothing Claude Code would read as its own, provenance tells verbatim
+# from derived, and the pack these scripts build passes the gates of catalog.py
+if [ -d .claude/skills/library-intake ]; then
+  if [ ! -f tests/library-intake-test.py ]; then
+    fail "library-intake: tests/library-intake-test.py is missing"
+  elif liout=$(python3 -I tests/library-intake-test.py 2>&1); then
+    ok "$(printf '%s\n' "$liout" | tail -1)"
+  else
+    fail "library-intake: tests/library-intake-test.py"; printf '%s\n' "$liout" | details
   fi
 fi

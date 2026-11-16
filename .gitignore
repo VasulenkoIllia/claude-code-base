@@ -32,9 +32,11 @@ broad.json
 results_*.json
 
 # Claude Code runtime files of this repo's own sessions (e.g. scheduled_tasks.lock holds a session id and pid);
-# only the project settings are tracked
+# only the project settings and the project skills and agents of this repo (.claude/skills, .claude/agents) are tracked
 /.claude/*
 !/.claude/settings.json
+!/.claude/skills/
+!/.claude/agents/
 
 # Do not rely on ~/.config/git/ignore (base-managed) for these
 graphify-out/

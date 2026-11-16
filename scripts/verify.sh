@@ -213,7 +213,9 @@ elif [ -f hooks/test-all.sh ]; then
   fi
 fi
 
-# 9. Skill and agent frontmatter; no argument placeholders in skills; preloads (B5) --------------
+# 9. Skill and agent frontmatter; no argument placeholders in skills; preloads (B5); the project skills of the base
+# itself (.claude/skills/<name>) by the rules of an own skill, its project agents (.claude/agents/<name>.md) with
+# their tools named ---------------------------------------------------------------------------------
 # An agent's skills: list preloads skills, but Claude Code silently skips (debug log only) a name it
 # cannot find, a skill with disable-model-invocation, and a skill hidden by skillOverrides
 # (user-invocable-only, off). A skill with paths: is not loaded until a matching file is touched, and a hidden
@@ -286,7 +288,7 @@ def lint(kind, rel, expected, text_check):
         if listed > desc_max:
             fails.append('%s: description + when_to_use %d chars, max %d' % (rel, listed, desc_max))
         size, nlines = len(text.encode('utf-8')), len(text.splitlines())
-        if rel.startswith('skills/own/') and (size > body_max or nlines > lines_max):
+        if rel.startswith(('skills/own/', '.claude/skills/')) and (size > body_max or nlines > lines_max):
             fails.append('%s: %d B, %d lines; an own skill holds at most %d B and %d lines (move the detail to a file '
                          'next to it)' % (rel, size, nlines, body_max, lines_max))
     if text_check:
@@ -357,7 +359,7 @@ def check_metrics():
     if set(consts.get('CONDITIONAL', ())) != cond:
         fails.append('tools/claude_metrics/patterns.py: CONDITIONAL %s differs from the skills with paths: %s' % (sorted(consts.get('CONDITIONAL', ())), sorted(cond)))
 
-counts = {'skill': 0, 'agent': 0}
+counts = {'skill': 0, 'agent': 0, 'project': 0, 'pagent': 0}
 for top, groups, kind in (('skills', SKILL_GROUPS, 'skill'), ('agents', AGENT_GROUPS, 'agent')):
     base = os.path.join(root, top)
     if not os.path.isdir(base):
@@ -391,15 +393,42 @@ for top, groups, kind in (('skills', SKILL_GROUPS, 'skill'), ('agents', AGENT_GR
                     fm = lint('agent', rel, entry[:-3], False)
                     if fm is not None:
                         preloads.extend((rel, s) for s in items(fm, 'skills'))
+# Project skills of the base itself (.claude/skills/<name>, loaded only in sessions of this repo, never installed):
+# the same name, description and size rules as an own skill; no agent preloads them, so they stay out of skill_fm
+pdir = os.path.join(root, '.claude', 'skills')
+for entry in sorted(os.listdir(pdir)) if os.path.isdir(pdir) else []:
+    if entry == '.DS_Store':
+        continue
+    rel = '.claude/skills/%s' % entry
+    if not os.path.isfile(os.path.join(pdir, entry, 'SKILL.md')):
+        fails.append('%s: a project skill is a folder with SKILL.md' % rel)
+    else:
+        counts['project'] += 1
+        lint('skill', rel + '/SKILL.md', entry, True)
+# Project agents of the base itself (.claude/agents/<name>.md, the same scope): the name of the file, a description,
+# no name of an agent of the base, and a tools line: without it an agent gets every tool of the session
+adir = os.path.join(root, '.claude', 'agents')
+for entry in sorted(os.listdir(adir)) if os.path.isdir(adir) else []:
+    if entry == '.DS_Store':
+        continue
+    rel = '.claude/agents/%s' % entry
+    if not entry.endswith('.md') or not os.path.isfile(os.path.join(adir, entry)):
+        fails.append('%s: a project agent is a .md file' % rel)
+        continue
+    counts['pagent'] += 1
+    fm = lint('agent', rel, entry[:-3], False)
+    if fm is not None and not items(fm, 'tools'):
+        fails.append('%s: a project agent names its tools (without the line it gets every tool of the session)' % rel)
 check_preloads()
 check_metrics()
-print('%d skills, %d agents, %d preload(s)' % (counts['skill'], counts['agent'], len(preloads)))
+print('%d skills, %d agents, %d preload(s), %d project skill(s), %d project agent(s)'
+      % (counts['skill'], counts['agent'], len(preloads), counts['project'], counts['pagent']))
 for f in fails:
     print(f)
 sys.exit(1 if fails else 0)
 PY
 fmout=$(python3 -I "$WORK/frontmatter.py" . "$SKILL_DESC_MAX" "$SKILL_EXTERNAL" "$SKILL_BODY_MAX" "$SKILL_LINES_MAX") && fmrc=0 || fmrc=$?
-if [ "$fmrc" -eq 0 ]; then ok "frontmatter: $(printf '%s\n' "$fmout" | head -1): name + description (+ when_to_use <= $SKILL_DESC_MAX), SKILL.md of an own skill <= $SKILL_BODY_MAX B and $SKILL_LINES_MAX lines, no \$N/\$ARGUMENTS in SKILL.md, preloads visible, skillOverrides keys and values valid, no hidden conditional skill, metrics lists match"
+if [ "$fmrc" -eq 0 ]; then ok "frontmatter: $(printf '%s\n' "$fmout" | head -1): name + description (+ when_to_use <= $SKILL_DESC_MAX), SKILL.md of an own or project skill <= $SKILL_BODY_MAX B and $SKILL_LINES_MAX lines, a project agent names its tools, no \$N/\$ARGUMENTS in SKILL.md, preloads visible, skillOverrides keys and values valid, no hidden conditional skill, metrics lists match"
 else fail "frontmatter: $(printf '%s\n' "$fmout" | tail -n +2 | wc -l | tr -d ' ') problems"; printf '%s\n' "$fmout" | tail -n +2 | details; fi
 
 # 9a. Negative fixtures for check 9: a clean synthetic tree must pass, and each copy with one defect
@@ -410,8 +439,13 @@ out, desc_max, body_max, lines_max = sys.argv[1], int(sys.argv[2]), int(sys.argv
 PRE = '---\nname: fx-pre\ndescription: Fixture skill an agent preloads.\n%s---\n%s'
 COND = '---\nname: fx-cond\ndescription: Fixture conditional skill.\nwhen_to_use: %s\npaths:\n  - "**/*.fx"\n---\nBody.\n'
 AGENT = '---\nname: fx-agent\ndescription: Fixture agent.\ntools: Read\n%s---\nBody.\n'
+PROJ = '---\nname: %s\ndescription: Fixture project skill.\n---\n%s'
+PAGENT = '---\nname: %s\ndescription: Fixture project agent.\n%s---\nBody.\n'
 CLEAN = {'pre': '', 'wtu': 'When a .fx file changes.', 'skills': 'skills:\n  - fx-pre\n', 'body': 'Body.\n',
-         'overrides': {'fx-pre': 'name-only', 'fx-ext': 'user-invocable-only'}}
+         'overrides': {'fx-pre': 'name-only', 'fx-ext': 'user-invocable-only'},
+         'proj': ('fx-proj', 'fx-proj', 'Body.\n'),          # folder, name, body
+         'stray': '',                                        # a folder of .claude/skills with no SKILL.md
+         'pagent': ('fx-scout', 'fx-scout', 'tools: Read\n')}   # file name, name, tools line
 CASES = [  # (case, change to CLEAN, text the one failure must contain)
     ('clean', {}, ''),
     ('unknown-skill', {'skills': 'skills: [fx-pre, fx-missing]\n'}, '"fx-missing", which is not a skill of the base'),
@@ -426,6 +460,13 @@ CASES = [  # (case, change to CLEAN, text the one failure must contain)
     ('description-one-over', {'wtu': 'x' * (desc_max - len('Fixture conditional skill.'))}, 'description + when_to_use %d chars' % (desc_max + 1)),
     ('own-skill-bytes', {'body': 'x' * body_max + '\n'}, 'an own skill holds at most'),
     ('own-skill-lines', {'body': 'x\n' * lines_max}, 'an own skill holds at most'),
+    ('project-skill-name', {'proj': ('fx-proj', 'fx-other', 'Body.\n')}, 'name "fx-other" differs from folder "fx-proj"'),
+    ('project-skill-doubles-own', {'proj': ('fx-pre', 'fx-pre', 'Body.\n')}, 'duplicate skill name'),
+    ('project-skill-bytes', {'proj': ('fx-proj', 'fx-proj', 'x' * body_max + '\n')}, 'an own skill holds at most'),
+    ('project-skill-no-skillmd', {'stray': 'fx-stray'}, 'a project skill is a folder with SKILL.md'),
+    ('project-agent-no-tools', {'pagent': ('fx-scout', 'fx-scout', '')}, 'a project agent names its tools'),
+    ('project-agent-name', {'pagent': ('fx-scout', 'fx-other', 'tools: Read\n')}, 'name "fx-other" differs from file name "fx-scout"'),
+    ('project-agent-doubles-base', {'pagent': ('fx-agent', 'fx-agent', 'tools: Read\n')}, 'duplicate agent name'),
 ]
 def write(rel, text):
     p = os.path.join(out, rel)
@@ -437,6 +478,10 @@ for case, change, want in CASES:
     write(case + '/skills/own/fx-pre/SKILL.md', PRE % (c['pre'], c['body']))
     write(case + '/skills/own/fx-cond/SKILL.md', COND % c['wtu'])
     write(case + '/agents/own/fx-agent.md', AGENT % c['skills'])
+    write(case + '/.claude/skills/%s/SKILL.md' % c['proj'][0], PROJ % c['proj'][1:])
+    write(case + '/.claude/agents/%s.md' % c['pagent'][0], PAGENT % c['pagent'][1:])
+    if c['stray']:
+        write(case + '/.claude/skills/%s/note.md' % c['stray'], 'A note, no skill.\n')
     write(case + '/global/settings.json', json.dumps({'skillOverrides': c['overrides']}))
 print('\n'.join('%s\t%s' % (case, want) for case, _, want in CASES))   # only after every tree is written
 PY
@@ -764,8 +809,9 @@ else
   fail "session-hint texts: tests/hint-text-test.py"; printf '%s\n' "$htout" | details
 fi
 
-# 22-25. The packs library (ADR-007), all of it optional: packs and catalog against the installer and the settings,
-# catalog.py and claude-pack on made-up packs and projects. Split off for size: scripts/verify-packs.sh, sourced here
+# 22-26. The packs library (ADR-007), all of it optional: packs and catalog against the installer and the settings,
+# catalog.py and claude-pack on made-up packs and projects, the scripts of the intake skill on made-up sources. Split
+# off for size: scripts/verify-packs.sh, sourced here
 . "$REPO/scripts/verify-packs.sh"
 
 echo "verify: $CHECKS checks, $FAILS failed"
