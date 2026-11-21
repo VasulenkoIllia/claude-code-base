@@ -14,7 +14,8 @@
 # почати» or STATUS or with big memory files, the old template), the Node standard of the
 # projects there and when versions.json is due (the stack line: node_std.py of the live skill), the docs repo of docs-sync
 # and its error log (docs-sync.sh report: the registry, the connected projects, folders not in it, the push), the packs
-# library when there is one (its catalog, the projects that enable a pack, the projects whose files call for a pack that is off, what Claude Code still records of a catalog that is gone), the unmanaged
+# library when there is one (its catalog, the projects that enable a pack, the projects whose files call for a pack that is off, what Claude Code still records of a catalog that is gone,
+# and the use of the packs by the transcripts of 60 days: a pack that got no call, a skill list near its limit, a review of a pack that is due), the unmanaged
 # items the base never touches, and whether the scan inside a commit works: real commits in a throwaway repo (scripts/commit-scan-probe.sh).
 # Writes nothing outside a temporary folder. One call over the network: gh about the origin of the docs repo (up to
 # DOCS_GH_SECS, 15 s; also with --skip-tests). Destinations: CLAUDE_HOME, HOME_AGENTS, GIT_EXCLUDES, BIN_DIR (see scripts/lib.sh).
@@ -574,6 +575,28 @@ if [ "$lib_state" = ok ] || [ "$lib_state" = gone ]; then
         [ -z "$sg_unread" ] || echo "  WARN: library: .claude or its settings.local.json is a link, the file is over 1 MB or its enabledPlugins is no object: claude-pack does not read it and what to propose there is not known: $sg_unread"
         [ -z "$sg_skipped" ] || echo "  WARN: library: signal files of a pack that claude-pack did not read, whether the pack fits there is not known: $sg_skipped"
       fi
+    fi
+    # The use of the packs (L4, ADR-007), by tools/claude-metrics.py --packs --doctor: it reads the catalog, the journal
+    # of claude-pack (state/packs.jsonl: the first enable of a pack in a project, the recorded reviews) and the
+    # transcripts of 60 days (in full those of the projects with a pack on, of the others the start of a last session).
+    # One line `library use:` says what it looked at; its WARNs (claude_metrics/packs_report.py): a pack that is on
+    # and not by the last line of the journal (by hand: its days are not counted); a pack on for 60 days without a
+    # break in a project with work sessions and no call (ADR-007 turns it off there); a project whose last session
+    # started with a skill list of 80% of its limit or more, or with a description of a pack skill cut; a review of a
+    # pack, due 30 and 60 days after its first enable in a project of PROJECTS_DIR, that `claude-pack review` has not
+    # recorded; a journal or transcripts not read in full or of another form. A helper that is not there, fails or
+    # prints another first line is a WARN, never "no finding"
+    if [ -f "$SETUP_REPO/tools/claude-metrics.py" ] && command -v python3 >/dev/null 2>&1; then
+      if pu=$(python3 -I "$SETUP_REPO/tools/claude-metrics.py" --packs --doctor --claude-home "$CLAUDE_HOME" \
+        --projects-dir "$PROJECTS_DIR" --enabled "$W/lib-on" --journal-shown "$(show_path CLAUDE_HOME/state/packs.jsonl)" \
+        </dev/null 2>"$W/lib-use-err"); then purc=0; else purc=$?; fi
+      if [ "$purc" = 0 ] && [[ $pu == '  library use: '* ]]; then printf '%s\n' "$pu"
+      else
+        pu_why=$(tail -n 1 "$W/lib-use-err" | LC_ALL=C tr -c '\040-\176' '?' | cut -c1-200)
+        echo "  WARN: library: claude-metrics --packs failed (exit $purc${pu_why:+: ${pu_why%\?}}): the use of the packs, the size of the skill lists and the reviews that are due are not known"
+      fi
+    else
+      echo "  WARN: library: the use of the packs not checked: no python3, or no tools/claude-metrics.py in the base"
     fi
   fi
 fi

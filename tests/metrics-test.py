@@ -37,7 +37,8 @@ usage of an answer the metrics skip (<synthetic>, an API error) is not read; a J
 integer over Python's digit limit is broken in both; usage_of on its own (usage_checks). A clean run has neither that
 line nor those keys.
 The language of what the model writes to the owner and the context of a session's first request by project:
-tests/metrics_lang_checks.py. Real permission prompts: tests/metrics_perm_checks.py.
+tests/metrics_lang_checks.py. Real permission prompts: tests/metrics_perm_checks.py. The use of the packs of the
+library (--packs, with the lines of doctor): tests/metrics_packs_checks.py, its edges: metrics_packs_edge_checks.py.
 Run: python3 -I tests/metrics-test.py (verify.sh check 16). Exit 0 = all checks passed.
 """
 import json
@@ -58,6 +59,8 @@ from claude_metrics import coverage, events, patterns, pushes, summary  # noqa: 
 from claude_metrics import transcript as metrics_transcript  # noqa: E402
 from claude_metrics.transcript import STATS  # noqa: E402
 from metrics_lang_checks import language_checks  # noqa: E402
+from metrics_packs_checks import packs_checks  # noqa: E402
+from metrics_packs_edge_checks import packs_edge_checks  # noqa: E402
 from metrics_perm_checks import permission_checks  # noqa: E402
 from time_register import scan as time_scan  # noqa: E402
 from time_register.transcript import pasted_label  # noqa: E402
@@ -682,6 +685,8 @@ def main():
         forms_checks(tmp)
         language_checks(tmp, check, CLI)
         permission_checks(tmp, check, CLI)
+        packs_checks(tmp, check, CLI)
+        packs_edge_checks(tmp, check)
         a, a2, b = build_repos(tmp)
         home = build_home(tmp, a, a2, b)
         report, err = run_cli(tmp, home)

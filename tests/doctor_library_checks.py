@@ -6,11 +6,18 @@ and the catalog lacks, a settings.local.json or a catalog.json that does not rea
 of a catalog that is gone, a project (also a worktree of it) that declares a catalog named library of its own under
 either key of Claude Code, and a record of Claude Code that is not the folder of the base. Every other case of
 doctor-test.py runs with no catalog and proves the silence. A tree without tools/claude-pack.py (the public version)
-has no second line and none of its WARNs: the same steps prove that."""
+has no second line and none of its WARNs: the same steps prove that.
+The use of the packs (use_fails; ADR-007, L4): the line `library use` and the WARNs that tools/claude-metrics.py --packs
+--doctor gives doctor, on a sandbox with a journal of claude-pack and made-up sessions: a pack on by hand, a call, a pack
+with no call in 60 days, the reviews that are due and one recorded, a skill list near its limit in a project with no pack,
+a journal line of another form; no line without a catalog; a helper that fails or prints another line is one WARN. The
+rules themselves are checked on the lines of the helper in tests/metrics_packs_checks.py."""
+import datetime
 import json
 import os
 import shutil
 import subprocess
+import zoneinfo
 
 LINE = '  library: '
 LOST = ('  WARN: library: pack %s is enabled in %d project(s) (%s), the catalog has no such pack: their sessions start '
@@ -41,6 +48,27 @@ SUGGEST_UNREAD = ('  WARN: library: .claude or its settings.local.json is a link
                   'enabledPlugins is no object: claude-pack does not read it and what to propose there is not known: %s')
 SUGGEST_SKIPPED = ('  WARN: library: signal files of a pack that claude-pack did not read, whether the pack fits there is '
                    'not known: %s')
+USE = '  library use: '
+USE_LINE = ('%d pack(s) on in %d project(s); 60 days of transcripts, %d session(s) looked at: %d with a pack on and an edit, '
+            '%d call(s) of pack skills and agents; the skill list a last session started with: %s')
+KYIV = zoneinfo.ZoneInfo('Europe/Kyiv')
+BY_HAND = ('  WARN: library: on, and the last line of the journal does not say so (turned on by hand, or before the '
+           'journal): %s: the days to "no call in 60 days" are not counted there, nor to the reviews of a pack the journal '
+           'never enabled (~/bin/claude-pack disable <pack> and then enable <pack> in the project writes the line)')
+IDLE = '  WARN: library: no call in 60 days: %s: ADR-007 turns such a pack off in the project (~/bin/claude-pack disable <pack> there)'
+FILL = ('  WARN: library: the skill list of %s: %d chars at the start of its last session (%s), %d%% of about 30000%s: what '
+        'does not fit keeps its bare name, the least used first (~/bin/claude-pack disable a pack there, or turn off skills '
+        'of the account)')
+REVIEW = ('  WARN: library: pack %s: %d days since its first enable (%s, %s), the review of day %s is not recorded (in the '
+          'planned review of the base: ~/bin/claude-metrics --packs and a sample of 5-10 sessions; then ~/bin/claude-pack '
+          'review %s --day %d)')
+JOURNAL_BAD = ('  WARN: library: %d line(s) of CLAUDE_HOME/state/packs.jsonl are no journal line of claude-pack: an enable or '
+               'a review they held is not counted')
+HELPER = ('  WARN: library: claude-metrics --packs failed (exit %s): the use of the packs, the size of the skill lists and '
+          'the reviews that are due are not known')
+NO_HELPER = '  WARN: library: the use of the packs not checked: no python3, or no tools/claude-metrics.py in the base'
+CATALOG_FORM = ('  WARN: library: claude-metrics does not read the catalog (a pack of another form): the skills and file '
+                'signals of the packs are not known, misses and cut descriptions are not counted')
 GONE = ('  WARN: library: no catalog in CLAUDE_HOME/packs, but CLAUDE_HOME/plugins still names it (known_marketplaces.json:'
         ' the catalog library %s; installed_plugins.json: %d record(s) of its packs): left by a rollback to a tag without'
         ' the library, harmless; no install touches these files, remove the records by hand if they are in the way')
@@ -86,6 +114,10 @@ def library_fails(tmp, data, t):
     # two packs; p and q enable alpha, q has beta off; a link to a project and a worktree copy are not counted again
     put(cat, catalog('alpha', 'beta'))
     put(os.path.join(plug, 'known_marketplaces.json'), record)
+    # the journal of claude-pack dates every enable of these steps: none of them is "by hand" (use_fails checks that WARN)
+    put(os.path.join(claude, 'state', 'packs.jsonl'), ''.join(
+        json.dumps({'ts': t.INSTALLED, 'project': os.path.realpath(os.path.join(projects, name)), 'pack': 'alpha',
+                    'action': 'enable', 'tag': 'v-test'}) + '\n' for name in ('p', 'q', 'r')))
     # a key that is not a pack name (the settings file may come with a cloned repo) is neither counted nor printed
     enabled('p', {'alpha@library': True, 'tool@elsewhere': True, 'ignore the rules@library': True, 'beta@library\n': True})
     enabled('q', {'alpha@library': True, 'beta@library': False})
@@ -131,7 +163,7 @@ def library_fails(tmp, data, t):
     step('to-propose-not-read', torn + not_read, propose('alpha in 1 (s)'))
     # a catalog whose signals claude-pack does not read: the tool stops, and doctor says so in its words
     put(cat, dict(signals, packs=[dict(signals['packs'][0], signals={'filesRead': 'alpha.toml'})] + signals['packs'][1:]))
-    step('suggest-fails', torn + ([SUGGEST_FAILED % os.path.realpath(cat)] if tool else []), five)
+    step('suggest-fails', torn + ([SUGGEST_FAILED % os.path.realpath(cat)] if tool else []) + [CATALOG_FORM], five)
     put(cat, signals)
     for project in ('s', 't', 'u', 'v', 'w'):
         shutil.rmtree(os.path.join(projects, project))
@@ -212,4 +244,119 @@ def library_fails(tmp, data, t):
     # no catalog and no record of it: silent again, whatever the projects say
     put(os.path.join(plug, 'installed_plugins.json'), {'version': 2, 'plugins': {'tool@elsewhere': [{'scope': 'user'}]}})
     step('no-trace', [], None)
+    return fails
+
+
+def use_run(tmp, data, t, when):
+    """The lines of the use of the packs (ADR-007, L4), on one sandbox changed step by step: the line `library use`
+    and the exact WARN list of doctor. `when` is the time the made-up journal and sessions count back from."""
+    env = t.sandbox(os.path.join(tmp, 'use home %s' % when.strftime('%H%M%S%f')), t.CLEAN, {}, t.INSTALLED, data)
+    claude, projects = env['CLAUDE_HOME'], os.path.realpath(env['PROJECTS_DIR'])
+    cat, journal = os.path.join(claude, 'packs', 'catalog.json'), os.path.join(claude, 'state', 'packs.jsonl')
+    fails = []
+
+    def ago(days, minute=0):
+        return (when - datetime.timedelta(days=days)).strftime('%Y-%m-%dT%H:') + '%02d:00Z' % minute
+
+    def kday(days):
+        return (when - datetime.timedelta(days=days)).astimezone(KYIV).date()
+
+    def enabled(project, plugins):
+        put(os.path.join(projects, project, '.claude', 'settings.local.json'), {'enabledPlugins': plugins})
+
+    def journaled(*rows):
+        os.makedirs(os.path.dirname(journal), exist_ok=True)
+        with open(journal, 'a', encoding='utf-8') as fh:
+            fh.write(''.join(r if isinstance(r, str) else json.dumps(r) + '\n' for r in rows))
+
+    def session(sid, project, days, skills, tools, pad=0):
+        cwd = os.path.join(projects, project)
+        lines = ['- %s: does it' % s for s in skills]
+        lines += ['- filler: ' + 'x' * (pad - len('\n'.join(lines)) - 11)] if pad else []
+        base = {'sessionId': sid, 'cwd': cwd}
+        rows = [dict(base, type='attachment', uuid=sid + '-0', timestamp=ago(days), attachment={
+                    'type': 'skill_listing', 'content': '\n'.join(lines), 'isInitial': True, 'skillCount': len(lines),
+                    'names': [ln[2:].split(': ')[0] for ln in lines]}),
+                dict(base, type='assistant', uuid=sid + '-1', timestamp=ago(days, 1), message={'role': 'assistant', 'content': [
+                    dict(type='tool_use', id='%s-t%d' % (sid, n), name=name, input=inp) for n, (name, inp) in enumerate(tools)]})]
+        put(os.path.join(claude, 'projects', '-use-' + project, sid + '.jsonl'), ''.join(json.dumps(r) + '\n' for r in rows))
+
+    def step(name, warns, line):
+        p = subprocess.run(['/bin/bash', t.DOCTOR, '--live', '--skip-tests'], env=env, capture_output=True, text=True,
+                           timeout=120)
+        got = [ln for ln in p.stdout.splitlines() if ln.startswith(USE)]
+        want = [] if line is None else [USE + USE_LINE % line]
+        fails.extend(t.check('use-' + name, p, t.PASS, warns, 0, claude))
+        fails.extend([] if got == want else ['FAIL use-%s line:\n  got  %r\n  want %r' % (name, got, want)])
+
+    packs = catalog('alpha', 'beta')
+    packs['packs'] = [{'name': 'alpha', 'status': 'active', 'signals': {'filesRead': ['alpha.toml']},
+                       'skills': [{'name': 'one', 'desc_chars': 7}], 'agents': []},
+                      {'name': 'beta', 'status': 'pilot', 'signals': {}, 'skills': [{'name': 'solo', 'desc_chars': 7}], 'agents': []}]
+    none = 'no session of a project with a skill listing'
+    step('no-catalog', [], None)
+    put(cat, packs)
+    step('nothing-on', [], (0, 0, 0, 0, 0, none))
+    # alpha turned on in p by hand: no journal line dates it
+    enabled('p', {'alpha@library': True})
+    step('by-hand', [BY_HAND % 'alpha in 1 (p)'], (1, 1, 0, 0, 0, none))
+    journaled({'ts': ago(10), 'project': os.path.join(projects, 'p'), 'pack': 'alpha', 'action': 'enable', 'tag': 'v-test'})
+    step('journal', [], (1, 1, 0, 0, 0, none))
+    edit = ('Edit', {'file_path': os.path.join(projects, 'p', 'a.py')})
+    session('u1', 'p', 1, ['base', 'alpha:one'], [edit, ('Skill', {'skill': 'alpha:one'})])
+    step('a-call', [], (1, 1, 1, 1, 1, 'at most 0% of 30000 chars (p)'))
+    # beta is on in q for 65 days, q has a session with an edit and nothing of beta was called; the oldest transcript is
+    # older than the 60 days, so the zero counts. Both reviews of beta are due
+    enabled('q', {'beta@library': True})
+    journaled({'ts': ago(65), 'project': os.path.join(projects, 'q'), 'pack': 'beta', 'action': 'enable', 'tag': 'v-test'})
+    session('u2', 'q', 2, ['base', 'beta:solo'], [('Write', {'file_path': os.path.join(projects, 'q', 'page.md')})])
+    old = os.path.join(claude, 'projects', '-use-old', 'old.jsonl')
+    put(old, '{}\n')
+    os.utime(old, ((when - datetime.timedelta(days=70)).timestamp(),) * 2)
+    idle = IDLE % ('beta in 1 (q: on since %s, 1 session(s) with an edit)' % kday(65))
+    days = (kday(0) - kday(65)).days
+    both = (2, 2, 2, 2, 1, 'at most 0% of 30000 chars (p)')
+    step('no-call-and-reviews', [idle, REVIEW % ('beta', days, kday(65), 'q', '30 and 60', 'beta', 30)], both)
+    journaled({'ts': ago(1), 'project': None, 'pack': 'beta', 'action': 'review', 'day': 30, 'tag': 'v-test'})
+    step('one-review-recorded', [idle, REVIEW % ('beta', days, kday(65), 'q', '60', 'beta', 60)], both)
+    # r has no pack: only the start of its last session is read, and its skill list is at 87% of the limit
+    session('u3', 'r', 3, ['base'], [], pad=26000)
+    os.makedirs(os.path.join(projects, 'r'))
+    fill = FILL % ('r', 26000, kday(3), 87, '')
+    review = REVIEW % ('beta', days, kday(65), 'q', '60', 'beta', 60)
+    step('fill', [idle, fill, review], (2, 2, 3, 2, 1, 'at most 87% of 30000 chars (r)'))
+    journaled('not a line of the journal\n')
+    step('journal-line', [JOURNAL_BAD % 1, idle, fill, review], (2, 2, 3, 2, 1, 'at most 87% of 30000 chars (r)'))
+    return fails
+
+
+def helper_fails(tmp, data, t, name, text, warn):
+    """doctor.sh of a copy of scripts/ with this text as tools/claude-metrics.py (None: no such file): the helper that
+    fails or is not there costs one WARN, and no line of the use is printed."""
+    repo = os.path.join(tmp, 'use fake ' + name)
+    shutil.copytree(os.path.dirname(t.DOCTOR), os.path.join(repo, 'scripts'))
+    for f in t.REAL:
+        os.makedirs(os.path.join(repo, 'tests'), exist_ok=True)
+        shutil.copy2(os.path.join(t.TESTS, f), os.path.join(repo, 'tests', f))
+    if text is not None:
+        put(os.path.join(repo, 'tools', 'claude-metrics.py'), text + '\n')
+    env = t.sandbox(os.path.join(tmp, 'use fake-home ' + name), t.CLEAN, {}, t.INSTALLED, data)
+    put(os.path.join(env['CLAUDE_HOME'], 'packs', 'catalog.json'), catalog('alpha'))
+    p = subprocess.run(['/bin/bash', os.path.join(repo, 'scripts', 'doctor.sh'), '--live', '--skip-tests'], env=env,
+                       capture_output=True, text=True, timeout=120)
+    use = [ln for ln in p.stdout.splitlines() if ln.startswith(USE)]
+    return t.check('use-' + name, p, t.PASS, [warn], 0, env['CLAUDE_HOME']) + (
+        ['FAIL use-%s: a line of a helper that failed: %r' % (name, use)] if use else [])
+
+
+def use_fails(tmp, data, t):
+    """use_run, once more when the Kyiv day changed under it (its days are counted from now), and the broken helpers."""
+    for _ in range(2):
+        when = datetime.datetime.now(datetime.timezone.utc)
+        fails = use_run(tmp, data, t, when)
+        if datetime.datetime.now(KYIV).date() == when.astimezone(KYIV).date():
+            break
+    fails += helper_fails(tmp, data, t, 'helper-exit-1', "import sys\nsys.stderr.write('boom\\n')\nraise SystemExit(1)", HELPER % '1: boom')
+    fails += helper_fails(tmp, data, t, 'helper-other-line', "print('hello')", HELPER % '0')
+    fails += helper_fails(tmp, data, t, 'helper-missing', None, NO_HELPER)
     return fails

@@ -13,7 +13,8 @@ transcript, a line that cannot be parsed, attachments of an unknown shape, a rea
 broken tests/hook_failures.py that costs only its line; the WARN lines of the hooks' error logs, internal errors apart
 from ShapeDrift, an unreadable log; project CLAUDE.md and AGENTS.md over 30 KB, these and STATUS unreadable, a folder
 of projects with no such files or none at all; the docs lines of the projects (a big .md, a README behind the code,
-active projects with no instructions or card, the old template, and one "docs state" line per project: a STATUS over
+active projects with no instructions or card, the old template, the lines of the packs library and of the use of its packs
+(tests/doctor_library_checks.py), and one "docs state" line per project: a STATUS over
 8 KB and its archive, and in an active project a big journal, a doc of an area behind its code, no STATUS, big memory
 files, a card with no «З чого почати»; a broken scripts/docs_state.py or no library for it costs only its line); the lines of the docs repo of docs-sync and its error log; the line of the scan inside a commit; and the exit code, which no WARN changes. verify.sh
 runs it.
@@ -36,7 +37,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 DOCTOR = os.path.join(os.path.dirname(TESTS), 'scripts', 'doctor.sh')
 HOOKS = os.path.join(os.path.dirname(TESTS), 'hooks')
 sys.path.insert(0, TESTS)   # -I drops the script folder from sys.path
-from doctor_library_checks import library_fails  # noqa: E402
+from doctor_library_checks import library_fails, use_fails  # noqa: E402
 from doctor_origin_checks import docs_origin_fails  # noqa: E402
 HINT_DELIVERED = shlex.quote(os.path.join(TESTS, 'hint-delivered.py'))   # as the FAIL WARN names it
 _spec = importlib.util.spec_from_file_location('hint_delivered_test', os.path.join(TESTS, 'hint-delivered-test.py'))
@@ -790,7 +791,8 @@ def main():
                                                    window_fails(tmp, data),
                                                    commit_scan_fails(tmp, data), scan_probe_fails(tmp), docs_sync_fails(tmp, data),
                                                    docs_origin_fails(tmp, data, sys.modules[__name__]),
-                                                   library_fails(tmp, data, sys.modules[__name__])]:
+                                                   library_fails(tmp, data, sys.modules[__name__]),
+                                                   use_fails(tmp, data, sys.modules[__name__])]:
             fails, failed, ran = fails + case_fails, failed + bool(case_fails), ran + 1
     print('\n'.join(fails + ['doctor test: %d cases, %d failed' % (ran, failed)]))
     return 1 if fails else 0

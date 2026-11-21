@@ -61,6 +61,13 @@ Usage (installed by the base as ~/bin/claude-metrics; from the repo: python3 -I 
   claude-metrics --weekly --since 2026-09-01      # key rates per ISO week
   claude-metrics --candidates                     # redo / premature-done candidates of the after window
   claude-metrics --json
+  claude-metrics --packs [--days N] [--json]      # the packs of the library, see below
+
+--packs (v2026.11.46, ADR-007): the use of the packs of the library over the last 60 days, by project and pack, from
+the transcripts, the journal of claude-pack and the catalog: work sessions and those with a call of the pack, the calls
+by skill and agent, misses, descriptions the skill listing cut, the packs that are on and not called, the size of the
+skill listing against its limit, the reviews 30 and 60 days after the first enable. Its own scan and its own rules
+(the sessions of the base count here): claude_metrics/packs.py. scripts/doctor.sh runs it with --doctor.
 """
 import argparse
 import json
@@ -72,6 +79,7 @@ sys.dont_write_bytecode = True  # no __pycache__ next to the live copy: doctor w
 # -I leaves the script's folder off sys.path; appended, so a stray file in ~/bin cannot shadow the standard library
 sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 # pylint: disable=wrong-import-position
+from claude_metrics import packs  # noqa: E402
 from claude_metrics.patterns import AFTER_START, BEFORE, FIELD_FORMS, KYIV, SKILLS_DIR  # noqa: E402
 from claude_metrics.pushes import GIT_FAILURES, pushes  # noqa: E402
 from claude_metrics.report import print_compare, print_weekly, window_warnings  # noqa: E402
@@ -91,7 +99,10 @@ def main():
     ap.add_argument("--since", type=date.fromisoformat, help="with --weekly: first day (default 8 weeks back)")
     ap.add_argument("--candidates", action="store_true", help="list redo and done-then-bug candidates of the after window")
     ap.add_argument("--json", action="store_true", help="print both windows as JSON")
+    packs.add_arguments(ap)
     a = ap.parse_args()
+    if a.packs:  # its own light scan of the window: none of the metrics below
+        sys.exit(packs.run(a))
 
     today = datetime.now(KYIV).date()
     after = a.after or [AFTER_START, max(today, AFTER_START)]
