@@ -27,7 +27,7 @@ for tool in jq shellcheck gitleaks python3 git tar; do
 done
 
 # Limits and known exceptions -------------------------------------------------------------------
-CLAUDE_MD_MAX=9900           # bytes, ≈3 550 tokens of the English text (≈2.8 B/token, measured 14.10), docs/adr/ADR-002-claude-md-budget.md
+CLAUDE_MD_MAX=10150          # bytes (≈2.8 B/token); the limit, its history and the token counts: docs/adr/ADR-002-claude-md-budget.md
 SKILL_DESC_MAX=500           # characters of description + when_to_use: the base's own limit (the skill listing cuts at 1 536, and the whole listing at 1% of the model's window), ADR-002
 SKILL_BODY_MAX=24000         # bytes of the SKILL.md of an own skill (skills/own): it is read whole on every call, ADR-002
 SKILL_LINES_MAX=500          # lines of the SKILL.md of an own skill; the detail goes to a file next to it
