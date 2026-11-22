@@ -341,6 +341,7 @@ def helper_fails(tmp, data, t, name, text, warn):
     if text is not None:
         put(os.path.join(repo, 'tools', 'claude-metrics.py'), text + '\n')
     env = t.sandbox(os.path.join(tmp, 'use fake-home ' + name), t.CLEAN, {}, t.INSTALLED, data)
+    t.checked_today(env['CLAUDE_HOME'], repo)
     put(os.path.join(env['CLAUDE_HOME'], 'packs', 'catalog.json'), catalog('alpha'))
     p = subprocess.run(['/bin/bash', os.path.join(repo, 'scripts', 'doctor.sh'), '--live', '--skip-tests'], env=env,
                        capture_output=True, text=True, timeout=120)

@@ -85,7 +85,7 @@ missing=""
 # otherwise drop out of the base without any message.
 for f in .gitleaks.toml global/CLAUDE.global.md global/settings.json global/home-agents.md \
          global/git-excludes hooks/test-all.sh vendor/ecc/ECC-PIN.md vendor/items.tsv \
-         scripts/legacy/ecc-drift.sh tools/time-register.py tools/time_register/__init__.py tools/claude-metrics.py \
+         tools/time-register.py tools/time_register/__init__.py tools/claude-metrics.py \
          tools/claude_metrics/__init__.py; do
   [ -f "$f" ] || missing="$missing $f"
 done
@@ -809,9 +809,9 @@ else
   fail "session-hint texts: tests/hint-text-test.py"; printf '%s\n' "$htout" | details
 fi
 
-# 22-26. The packs library (ADR-007), all of it optional: packs and catalog against the installer and the settings,
-# catalog.py and claude-pack on made-up packs and projects, the scripts of the intake skill on made-up sources. Split
-# off for size: scripts/verify-packs.sh, sourced here
+# 22-27. The packs library (ADR-007), all of it optional: packs and catalog against the installer and the settings,
+# catalog.py and claude-pack on made-up packs and projects, the scripts of the intake skill on made-up sources; and the
+# check of the sources of the vendored files, in every tree. Split off for size: scripts/verify-packs.sh, sourced here
 . "$REPO/scripts/verify-packs.sh"
 
 echo "verify: $CHECKS checks, $FAILS failed"

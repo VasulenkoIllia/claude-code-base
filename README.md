@@ -15,7 +15,7 @@ English: [README.en.md](README.en.md).
 | `agents/` | рев'юери: code-reviewer, security-reviewer, typescript-reviewer, react-reviewer, database-reviewer, architect (ECC), silent-failure-hunter (Anthropic) | `~/.claude/agents/` |
 | `tools/` | claude-time (час сесій за проєктами й задачами), claude-metrics (метрики роботи до і після релізів) | `~/bin/` |
 | `vendor/ecc/` | звідки кожен скіл і агент ECC, локальні відмінності (`patches/`) | `ECC-PIN.md` у `~/.claude/` |
-| `scripts/`, `tests/` | install, rollback, doctor, verify, знімки, project-doctor; тести й гейти | не ставляться (крім `legacy/ecc-drift.sh` у `~/bin/`) |
+| `scripts/`, `tests/` | install, rollback, doctor, verify, знімки, project-doctor; тести й гейти | не ставляться |
 
 Що робить кожен хук, скрипт і інструмент, кажуть їхні заголовки. Перелік керованих файлів виводиться з розкладки репо (`scripts/lib.sh`, `managed_items`). Решту `~/.claude` install не чіпає: плагіни, `~/.claude.json`, транскрипти, memory, свої скіли, агенти й правила з іншими назвами. Проєктів install не шукає і не чіпає: правила, хуки, агенти й скіли діють глобально, у сесії в будь-якій теці. Теку проєктів `~/WebstormProjects` читають лише claude-time, claude-metrics, перевірки проєктів у doctor (інша тека: `PROJECTS_DIR`) і docs-sync, коли ви його підключите.
 
@@ -198,14 +198,15 @@ bash scripts/install.sh "$(git tag --sort=-v:refname | head -n 1)" --dry-run
 
 Далі само. Документи змінились без коміту: `~/.claude/hooks/docs-sync.sh sync <тека>`; від'єднати: `disconnect <тека>`; стан: рядки `docs repo:` у `doctor.sh --live`. Новий проєкт `/new-project` підключає сам.
 
-## Звірка з ECC (ecc-drift)
+## Звірка джерел (sources-check)
 
-П'ять скілів і шість агентів узято з ECC, точка відліку в `~/.claude/ECC-PIN.md`. Що змінилось в upstream після неї, показує ecc-drift (лише читає):
+Частину скілів і агентів я взяв з ECC і з плагінів Anthropic. Звідки кожен такий файл і з якого коміту, записано у `vendor/items.tsv`. Що змінилось у цих репо після тих комітів, показує звірка. Вона лише читає, і клон ECC для неї більше не потрібен:
 
 ```bash
-git clone https://github.com/affaan-m/everything-claude-code ~/ai-stack/everything-claude-code
-bash ~/bin/ecc-drift.sh
+cd ~/claude-code-base && python3 -I -B scripts/sources-check.py
 ```
+
+Потрібні мережа і `gh` з входом (`gh auth login`). Звірка питає GitHub про кожне джерело і каже, чи воно зсунулось і в скількох файлів бази змінився оригінал; `--source <власник/репо>` називає ці файли. Вона нічого не оновлює. День повної звірки вона пише в `~/.claude/state/sources-check.json`, і `doctor.sh --live` дає WARN `sources:`, поки звірки не було або коли їй понад 35 днів.
 
 Переносити зміни чи ні, вирішую я; вони приходять наступним тегом.
 
@@ -220,7 +221,7 @@ bash ~/bin/ecc-drift.sh
 - Лише macOS на Apple Silicon з Homebrew. Глобальні правила просять Claude відповідати українською, повідомлення хуків теж українською; інша мова відповідей: своє правило в особистому шарі, але після стискання контексту хук session-hint усе одно нагадує Claude про українську (прибрати це можна лише у своїй копії, [docs/FORK.md](docs/FORK.md)).
 - `settings.json` керований повністю: ваші ключі там (плагіни, модель, дозволи) install замінить, а окремого файла налаштувань користувача поруч Claude Code не читає. Особисте лише в `~/.claude/rules/` і в проєктах.
 - Проєкти очікуються в `~/WebstormProjects`: там їх шукають claude-time, claude-metrics, doctor (для doctor і project-doctor інша тека через `PROJECTS_DIR`) і docs-sync. claude-metrics не рахує сесій у теці `claude-code-base` (сама база); дні рахує за Києвом, вікна «до» і «після» за замовчуванням з моєї історії (свої: `--before`, `--after`).
-- docs-sync, ecc-drift і claude-time нічого не роблять, доки ви їх не запустите чи не підключите (розділи вище).
+- docs-sync, звірка джерел і claude-time нічого не роблять, доки ви їх не запустите чи не підключите (розділи вище).
 - Хуки-охоронці страхують від помилок моделі, а не від людини: їхня логіка відкрита.
 - Сповіщення про новий тег немає: оновлення вручну. Теги calver `vYYYY.MM.N` з моєї бази, пропуски номерів нормальні.
 

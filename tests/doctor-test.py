@@ -14,7 +14,8 @@ broken tests/hook_failures.py that costs only its line; the WARN lines of the ho
 from ShapeDrift, an unreadable log; project CLAUDE.md and AGENTS.md over 30 KB, these and STATUS unreadable, a folder
 of projects with no such files or none at all; the docs lines of the projects (a big .md, a README behind the code,
 active projects with no instructions or card, the old template, the lines of the packs library and of the use of its packs
-(tests/doctor_library_checks.py), and one "docs state" line per project: a STATUS over
+(tests/doctor_library_checks.py), the line of the last check of the sources (tests/doctor_sources_checks.py; the sandbox
+holds a check of today), and one "docs state" line per project: a STATUS over
 8 KB and its archive, and in an active project a big journal, a doc of an area behind its code, no STATUS, big memory
 files, a card with no «З чого почати»; a broken scripts/docs_state.py or no library for it costs only its line); the lines of the docs repo of docs-sync and its error log; the line of the scan inside a commit; and the exit code, which no WARN changes. verify.sh
 runs it.
@@ -39,6 +40,7 @@ HOOKS = os.path.join(os.path.dirname(TESTS), 'hooks')
 sys.path.insert(0, TESTS)   # -I drops the script folder from sys.path
 from doctor_library_checks import library_fails, use_fails  # noqa: E402
 from doctor_origin_checks import docs_origin_fails  # noqa: E402
+from doctor_sources_checks import checked_today, sources_fails  # noqa: E402
 HINT_DELIVERED = shlex.quote(os.path.join(TESTS, 'hint-delivered.py'))   # as the FAIL WARN names it
 _spec = importlib.util.spec_from_file_location('hint_delivered_test', os.path.join(TESTS, 'hint-delivered-test.py'))
 hdt = importlib.util.module_from_spec(_spec)
@@ -227,6 +229,7 @@ def sandbox(home, projects, logs, installed_at, data):
             fh.write(text)
         if mode is not None:
             os.chmod(fh.name, mode)
+    checked_today(claude, os.path.dirname(TESTS))   # the sources of this base checked today: no WARN of that line
     projects = os.path.join(home, 'projects')
     os.makedirs(os.path.join(projects, 'p'), exist_ok=True)
     with open(os.path.join(projects, 'p', 'CLAUDE.md'), 'w', encoding='utf-8') as fh:
@@ -298,6 +301,7 @@ def fake_run(tmp, name, files, data):
             with open(os.path.join(repo, 'tests', f), 'w', encoding='utf-8') as fh:
                 fh.write(text + '\n')
     env = sandbox(os.path.join(tmp, 'fake-home ' + name), CLEAN, {}, INSTALLED, data)
+    checked_today(env['CLAUDE_HOME'], repo)
     return subprocess.run(['/bin/bash', os.path.join(repo, 'scripts', 'doctor.sh'), '--live', '--skip-tests'], env=env,
                           capture_output=True, text=True, timeout=120), env['CLAUDE_HOME']
 
@@ -645,6 +649,7 @@ def docs_helper_fails(tmp, data):
         repo, now = os.path.join(env['PROJECTS_DIR'], 'base repo'), datetime.datetime.now(datetime.timezone.utc)
         os.makedirs(os.path.join(repo, 'tests'))
         shutil.copytree(os.path.dirname(DOCTOR), os.path.join(repo, 'scripts'))
+        checked_today(env['CLAUDE_HOME'], repo)
         for f in REAL:
             shutil.copy2(os.path.join(TESTS, f), os.path.join(repo, 'tests', f))
         with open(os.path.join(repo, 'scripts', 'docs_state.py'), 'w', encoding='utf-8') as fh:
@@ -792,7 +797,8 @@ def main():
                                                    commit_scan_fails(tmp, data), scan_probe_fails(tmp), docs_sync_fails(tmp, data),
                                                    docs_origin_fails(tmp, data, sys.modules[__name__]),
                                                    library_fails(tmp, data, sys.modules[__name__]),
-                                                   use_fails(tmp, data, sys.modules[__name__])]:
+                                                   use_fails(tmp, data, sys.modules[__name__]),
+                                                   sources_fails(tmp, data, sys.modules[__name__])]:
             fails, failed, ran = fails + case_fails, failed + bool(case_fails), ran + 1
     print('\n'.join(fails + ['doctor test: %d cases, %d failed' % (ran, failed)]))
     return 1 if fails else 0

@@ -15,7 +15,7 @@ A Claude Code setup for macOS: global rules, guard hooks, path-scoped rules, ski
 | `agents/` | reviewers: code-reviewer, security-reviewer, typescript-reviewer, react-reviewer, database-reviewer, architect (ECC), silent-failure-hunter (Anthropic) | `~/.claude/agents/` |
 | `tools/` | claude-time (session hours per project and task), claude-metrics (work metrics before and after releases) | `~/bin/` |
 | `vendor/ecc/` | where each ECC skill and agent came from, local changes (`patches/`) | `ECC-PIN.md` in `~/.claude/` |
-| `scripts/`, `tests/` | install, rollback, doctor, verify, snapshots, project-doctor; tests and gates | not installed (except `legacy/ecc-drift.sh` to `~/bin/`) |
+| `scripts/`, `tests/` | install, rollback, doctor, verify, snapshots, project-doctor; tests and gates | not installed |
 
 The header of each hook, script and tool says what it does. The list of managed files comes from the repo layout (`scripts/lib.sh`, `managed_items`). Install leaves the rest of `~/.claude` alone: plugins, `~/.claude.json`, transcripts, memory, your own skills, agents and rules under other names. Install neither looks for nor touches your projects: rules, hooks, agents and skills work globally, in a session in any folder. Only claude-time, claude-metrics, the project checks of doctor (another folder: `PROJECTS_DIR`) and docs-sync, once you connect it, read the projects folder `~/WebstormProjects`.
 
@@ -198,14 +198,15 @@ If your projects keep docs outside git (`docs/` or `_internal/` in `.gitignore`,
 
 After that it runs by itself. Docs changed without a commit: `~/.claude/hooks/docs-sync.sh sync <folder>`; disconnect: `disconnect <folder>`; state: the `docs repo:` lines of `doctor.sh --live`. `/new-project` connects a new project itself.
 
-## Checking against ECC (ecc-drift)
+## Checking the sources (sources-check)
 
-Five skills and six agents come from ECC; the reference point is in `~/.claude/ECC-PIN.md`. What changed upstream since then, ecc-drift shows (read-only):
+I took some of the skills and agents from ECC and from the Anthropic plugins. Where each such file came from, and from which commit, is recorded in `vendor/items.tsv`. What changed in those repos since those commits, the check shows. It only reads, and it no longer needs a clone of ECC:
 
 ```bash
-git clone https://github.com/affaan-m/everything-claude-code ~/ai-stack/everything-claude-code
-bash ~/bin/ecc-drift.sh
+cd ~/claude-code-base && python3 -I -B scripts/sources-check.py
 ```
+
+It needs the network and `gh` with a sign-in (`gh auth login`). The check asks GitHub about each source and says whether it moved and how many files of the base have a changed original; `--source <owner/name>` names those files. It updates nothing. It writes the day of a full check to `~/.claude/state/sources-check.json`, and `doctor.sh --live` gives a WARN `sources:` until there was a check, or when the check is over 35 days old.
 
 Whether to take a change over is my call; it arrives with the next tag.
 
@@ -220,7 +221,7 @@ Whether to take a change over is my call; it arrives with the next tag.
 - macOS on Apple Silicon with Homebrew only. The global rules ask Claude to answer in Ukrainian, and hook messages are in Ukrainian too; for another answer language, add your own rule in the personal layer. After a context compaction the session-hint hook still reminds Claude to answer in Ukrainian; only your own copy can drop that ([docs/FORK.md](docs/FORK.md)).
 - `settings.json` is managed as a whole: your keys there (plugins, model, permissions) are replaced by install, and Claude Code reads no separate user settings file next to it. Personal settings live only in `~/.claude/rules/` and in projects.
 - Projects are expected in `~/WebstormProjects`: claude-time, claude-metrics, doctor (doctor and project-doctor take another folder from `PROJECTS_DIR`) and docs-sync look there. claude-metrics leaves out the sessions in a folder named `claude-code-base` (the base itself); it counts days in Kyiv time, and its default "before" and "after" windows come from my history (yours: `--before`, `--after`).
-- docs-sync, ecc-drift and claude-time do nothing until you run or connect them (sections above).
+- docs-sync, the check of the sources and claude-time do nothing until you run or connect them (sections above).
 - The guard hooks catch a model's mistakes, not a person's intent: their logic is open.
 - No notice of a new tag: updates are manual. Tags are calver `vYYYY.MM.N` from my setup; gaps in the numbers are normal.
 

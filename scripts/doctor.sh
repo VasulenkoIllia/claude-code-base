@@ -15,7 +15,8 @@
 # projects there and when versions.json is due (the stack line: node_std.py of the live skill), the docs repo of docs-sync
 # and its error log (docs-sync.sh report: the registry, the connected projects, folders not in it, the push), the packs
 # library when there is one (its catalog, the projects that enable a pack, the projects whose files call for a pack that is off, what Claude Code still records of a catalog that is gone,
-# and the use of the packs by the transcripts of 60 days: a pack that got no call, a skill list near its limit, a review of a pack that is due), the unmanaged
+# and the use of the packs by the transcripts of 60 days: a pack that got no call, a skill list near its limit, a review of a pack that is due), when the
+# sources of the vendored files were last checked (scripts/sources-check.py --doctor: its state file, no network), the unmanaged
 # items the base never touches, and whether the scan inside a commit works: real commits in a throwaway repo (scripts/commit-scan-probe.sh).
 # Writes nothing outside a temporary folder. One call over the network: gh about the origin of the docs repo (up to
 # DOCS_GH_SECS, 15 s; also with --skip-tests). Destinations: CLAUDE_HOME, HOME_AGENTS, GIT_EXCLUDES, BIN_DIR (see scripts/lib.sh).
@@ -37,7 +38,7 @@ while [ $# -gt 0 ]; do
   case $1 in
     --live) ;;
     --skip-tests) TESTS=0 ;;
-    -h | --help) sed -n '2,20p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,21p' "$0"; exit 0 ;;
     *) echo "doctor.sh: unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -598,6 +599,24 @@ if [ "$lib_state" = ok ] || [ "$lib_state" = gone ]; then
     else
       echo "  WARN: library: the use of the packs not checked: no python3, or no tools/claude-metrics.py in the base"
     fi
+  fi
+fi
+
+# The sources of the vendored files (ADR-007, L4), offline: scripts/sources-check.py --doctor reads only the file its
+# last full check wrote, CLAUDE_HOME/state/sources-check.json (the check itself asks GitHub and never runs here), and
+# prints one line `sources:` with the day of that check and what it found. WARNs: no check was ever recorded, the file
+# does not read or is of another form, the check was of another tree (a clone of the base ran it), the check is over
+# 35 days old (owner's decision 22.11.2026: the rhythm of the stack line). Sources that moved are no WARN: what to take from them is decided at the review, an update is a release
+# of its own. A helper that is not there, fails or prints another first line is a WARN, never "no finding"
+SRC_CHECK="$SETUP_REPO/scripts/sources-check.py"
+if [ ! -f "$SRC_CHECK" ] || ! command -v python3 >/dev/null 2>&1; then
+  echo "  WARN: sources: when they were last checked is not known: no python3, or no scripts/sources-check.py in the base"
+else
+  if so=$(CLAUDE_HOME="$CLAUDE_HOME" python3 -I -B "$SRC_CHECK" --doctor </dev/null 2>"$W/sources-err"); then sorc=0; else sorc=$?; fi
+  if [ "$sorc" = 0 ] && { [[ $so == '  sources: '* ]] || [[ $so == '  WARN: sources: '* ]]; }; then printf '%s\n' "$so"
+  else
+    so_why=$(tail -n 1 "$W/sources-err" | LC_ALL=C tr -c '\040-\176' '?' | cut -c1-200)
+    echo "  WARN: sources: sources-check.py --doctor failed (exit $sorc${so_why:+: ${so_why%\?}}): when they were last checked is not known"
   fi
 fi
 

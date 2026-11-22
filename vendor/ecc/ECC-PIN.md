@@ -4,7 +4,7 @@ pin: 2d515e4   # origin/main 2026-10-10, VERSION 2.2.3; tag v2.2.3 lacks the ver
 source: https://github.com/affaan-m/everything-claude-code (local clone ~/ai-stack/everything-claude-code)
 method: git archive <pin> skills/<x> | tar -x --strip-components=1 ; git show <pin>:agents/<x>.md
 installed: 2026-10-11 (previous: 125d5e6, 2026-04-10, VERSION 1.10.0)
-drift check: bash ~/bin/ecc-drift.sh
+drift check: python3 -I -B scripts/sources-check.py in the base repo (every source of vendor/items.tsv; until v2026.11.46: ~/bin/ecc-drift.sh)
 
 ## Installed from ECC
 skills: database-migrations docker-patterns security-review

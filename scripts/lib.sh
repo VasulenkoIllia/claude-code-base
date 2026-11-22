@@ -18,7 +18,8 @@
 #   global/home-agents.md        -> HOME_AGENTS
 #   global/git-excludes          -> GIT_EXCLUDES                (lines merged, file never overwritten)
 #   vendor/ecc/ECC-PIN.md        -> CLAUDE_HOME/ECC-PIN.md
-#   scripts/legacy/ecc-drift.sh  -> BIN_DIR/ecc-drift.sh
+#   scripts/legacy/ecc-drift.sh  -> BIN_DIR/ecc-drift.sh        (optional: only the tags up to v2026.11.46 have it;
+#                                                                scripts/sources-check.py replaced it and runs from the repo)
 #   tools/time-register.py       -> BIN_DIR/claude-time
 #   tools/time_register/         -> BIN_DIR/time_register/      (the package claude-time imports; claude-metrics
 #                                                                takes its prompt rule from it)
@@ -275,7 +276,7 @@ PACK_CATALOG_FILES=".claude-plugin/marketplace.json catalog.json CATALOG.md"
 managed_items() {
   local t=$1 f n g names="" dup
   for f in global/CLAUDE.global.md global/settings.json global/home-agents.md global/git-excludes \
-    vendor/ecc/ECC-PIN.md scripts/legacy/ecc-drift.sh tools/time-register.py tools/claude-metrics.py; do
+    vendor/ecc/ECC-PIN.md tools/time-register.py tools/claude-metrics.py; do
     regular_file_or_die "$t/$f" "$f"
   done
   if [ -d "$t/hooks" ]; then
@@ -345,7 +346,12 @@ managed_items() {
       printf '7\tdir\ttools/%s\tBIN_DIR/%s\n' "$n" "$n"
     fi
   done
-  printf '7\tfile\tscripts/legacy/ecc-drift.sh\tBIN_DIR/ecc-drift.sh\n'
+  # optional: the tags up to v2026.11.46 have it and this lib.sh still installs them (rolls back to them); a tag
+  # without it retires the live file, like any item that left the base
+  if [ -e "$t/scripts/legacy/ecc-drift.sh" ] || [ -L "$t/scripts/legacy/ecc-drift.sh" ]; then
+    regular_file_or_die "$t/scripts/legacy/ecc-drift.sh" scripts/legacy/ecc-drift.sh
+    printf '7\tfile\tscripts/legacy/ecc-drift.sh\tBIN_DIR/ecc-drift.sh\n'
+  fi
   printf '7\tfile\ttools/time-register.py\tBIN_DIR/claude-time\n'
   printf '7\tfile\ttools/claude-metrics.py\tBIN_DIR/claude-metrics\n'
   # the packs library (ADR-007), all of it optional: tags up to v2026.11.32 and the public tree have none, and this

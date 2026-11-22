@@ -11,6 +11,7 @@ after install); a write that only reformats does not. Also --force-drift, a firs
 a byte order mark, rollback.sh <tag>, rollback.sh --to-snapshot, and plan.sh: a plan with no write, exit 3 on drift, no
 option of install.sh through it. The hook tests after the hooks step get the tag's staged tree as SETUP_STAGE.
 The packs library (tests/install_pack_checks.py): a pack comes, changes and goes as its own plan item, a rollback takes it away.
+A tool that left the base (tests/install_retire_checks.py): a tag without scripts/legacy/ecc-drift.sh retires the live file, a rollback brings it back.
 
 Not in verify.sh: it takes about a minute and verify runs several times per release (owner's decision 31.10 on the volume
 of checks). Step 3 of the cycle in the root CLAUDE.md runs it when install.sh, plan.sh, lib.sh or rollback.sh change.
@@ -28,6 +29,7 @@ import tempfile
 SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'scripts')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # -I drops the script folder from sys.path
 from install_pack_checks import pack_cases  # noqa: E402
+from install_retire_checks import retire_cases  # noqa: E402
 COPIED = ('install.sh', 'lib.sh', 'plan.sh', 'rollback.sh', 'snapshot-restore.sh')   # no verify.sh: install only warns about that
 USER = ['-c', 'user.name=install-test', '-c', 'user.email=install-test@localhost.invalid']
 GIT_ENV = {'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_CONFIG_NOSYSTEM': '1'}
@@ -415,7 +417,8 @@ def main():
         during_install(root, repo)
         staged_tree(root, repo)
         plan_script(root, repo)
-        pack_cases(sys.modules[__name__], root, repo)   # last: it adds tags to the repo
+        retire_cases(sys.modules[__name__], root, repo)   # these two last: they add tags to the repo
+        pack_cases(sys.modules[__name__], root, repo)
     finally:
         shutil.rmtree(root, ignore_errors=True)
     print('install drift test: %d cases, %d failed' % (cases, failed))

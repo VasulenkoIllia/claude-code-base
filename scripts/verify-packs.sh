@@ -1,5 +1,6 @@
-# verify-packs.sh: checks 22-26 of scripts/verify.sh, the packs library (split off for size). Sourced by verify.sh in
-# the root of the tree under test: it uses ok, fail and details and the staged copy STAGE of that script.
+# verify-packs.sh: checks 22-27 of scripts/verify.sh, the packs library and the check of the sources of the vendored
+# files (split off for size). Sourced by verify.sh in the root of the tree under test: it uses ok, fail and details and
+# the staged copy STAGE of that script.
 
 # 22. The packs library (ADR-007), all of it optional: a tree without packs/ (a tag up to v2026.11.32, the public
 # version) passes. With packs/: scripts/catalog.py --check (the generated catalog equals a fresh generation; names and
@@ -110,4 +111,16 @@ if [ -d .claude/skills/library-intake ]; then
   else
     fail "library-intake: tests/library-intake-test.py"; printf '%s\n' "$liout" | details
   fi
+fi
+
+# 27. The check of the sources (scripts/sources-check.py, in every tree: the core has vendored files too) on a made-up
+# tree and made-up repos served by a stand-in gh (tests/sources-check-test.py, offline, a temp folder): an original that
+# changed, is gone or was only moved, sources that do not answer, trees that do not read, the state file and the lines
+# it gives doctor.sh
+if [ ! -f scripts/sources-check.py ] || [ ! -f tests/sources-check-test.py ]; then
+  fail "sources-check: scripts/sources-check.py or tests/sources-check-test.py is missing"
+elif scout=$(python3 -I tests/sources-check-test.py 2>&1); then
+  ok "$(printf '%s\n' "$scout" | tail -1)"
+else
+  fail "sources-check: tests/sources-check-test.py"; printf '%s\n' "$scout" | details
 fi

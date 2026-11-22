@@ -45,7 +45,6 @@ pairs() {
   printf '%s\t%s\n' "$HOME_AGENTS" global/home-agents.md
   printf '%s\t%s\n' "$GIT_EXCLUDES" global/git-excludes
   printf '%s\t%s\n' "$CLAUDE_HOME/ECC-PIN.md" vendor/ecc/ECC-PIN.md
-  printf '%s\t%s\n' "$BIN_DIR/ecc-drift.sh" scripts/legacy/ecc-drift.sh
   for x in "${HOOKS[@]}"; do printf '%s\t%s\n' "$CLAUDE_HOME/hooks/$x" "hooks/$x"; done
   for x in "${ECC_SKILLS[@]}"; do printf '%s\t%s\n' "$CLAUDE_HOME/skills/$x" "skills/vendor-ecc/$x"; done
   for x in "${ECC_AGENTS[@]}"; do printf '%s\t%s\n' "$CLAUDE_HOME/agents/$x.md" "agents/vendor-ecc/$x.md"; done

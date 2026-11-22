@@ -77,7 +77,7 @@
 - Документацію бібліотек Claude бере з Context7 за рядком глобальних правил, окремого скіла для цього немає (конектор: README, «Вимоги»).
 - Вбудовані в Claude Code: `/simplify` (спрощує дифф), `/code-review` (шукає баги в диффі).
 
-**Інструменти в `~/bin`.** claude-time: реєстр задач і часу сесій. claude-metrics: метрики «до і після», лише читає. ecc-drift.sh: розбіжність скілів і агентів ECC з upstream.
+**Інструменти в `~/bin`.** claude-time: реєстр задач і часу сесій. claude-metrics: метрики «до і після», лише читає. Звірка джерел у `~/bin` не ставиться: вона запускається з клону бази (нижче).
 
 **Дозволи** (`permissions` у `global/settings.json`).
 - Без питань: `git status`, `diff`, `log`, `show`; typecheck, lint, test і build через `npm run`, typecheck, lint і test через `pnpm run`; `docker ps` і логи; `gh pr view` і `checks`, `gh run`; `osv-scanner scan`; claude-time і claude-metrics.
@@ -158,6 +158,7 @@
 - немає рядків `internal errors` і `input of an unknown shape` (dup-guard, doc-reminder, session-hint, bash-guard, push-allow, node-std);
 - `commit scan: OK`: справжній коміт з вигаданим токеном у тимчасовому репо зупиняється;
 - `delivery:` з PASS; одразу після install там NOT PROVEN YET чи NO DATA, доки нові сесії не мали пушу і стискання, і це не збій;
+- `sources:` з днем останньої звірки джерел. WARN `never checked` чи `over 35 days ago` це нагадування: запустіть `python3 -I -B scripts/sources-check.py` у клоні бази (мережа і `gh` з входом). На роботу бази воно не впливає;
 - `hook failures:` 0 за 7 днів. Зі збоями WARN каже, скільки, яких видів і де. Збій fork означає, що скінчився ліміт процесів: шукайте важкі паралельні прогони в той час. Рядок очиститься сам, коли збою мине 7 днів.
 
 Решта WARN про проєкти в `~/WebstormProjects` (інша тека: `PROJECTS_DIR=<тека>`), а не про базу: завеликі CLAUDE.md чи AGENTS.md (`project file over 30 KB`), стан документів проєкту одним рядком `docs state:` (STATUS понад 8 КБ, а в активному проєкті ще робочий журнал понад 40 КБ, документ області позаду коду, немає STATUS, файл memory понад 5 КБ, картка без «З чого почати»), `README behind the code`, активний проєкт без інструкцій чи картки, Node позаду стандарту чи без підтримки (рядок `stack:`; оновлення запропонує node-std у сесії проєкту), `docs repo:` (docs-sync). Кожен проєкт окремою сесією; усі прапорці: `bash scripts/project-doctor.sh --all`.
@@ -221,7 +222,7 @@
 - Свої хуки, rules чи скіли в самій базі: форк і цикл з [FORK.md](FORK.md).
 - Оновлення: README, «Оновлення». Після кожного install перезапустіть усі сесії Claude: нові правила й хуки діють лише в нових сесіях.
 - Відкат: `bash scripts/rollback.sh <попередній тег>` і перезапуск сесій. Знімки: `ls ~/claude-backups/setup-snapshots/`. Аварійні випадки: README, «Відкат».
-- ECC: `~/bin/ecc-drift.sh` показує розбіжності з upstream; локальні відмінності в `vendor/ecc/patches/`, перелік у `vendor/ecc/ECC-PIN.md`. Що переносити, вирішую я; зміни приходять наступним тегом.
+- ECC та інші джерела: `python3 -I -B scripts/sources-check.py` у клоні бази показує, які джерела зсунулись від записаних комітів; локальні відмінності в `vendor/ecc/patches/`, перелік у `vendor/ecc/ECC-PIN.md`. Що переносити, вирішую я; зміни приходять наступним тегом.
 - Пропозиції змін: issue чи PR (README, «Внески»).
 
 ## 7. Шпаргалка команд
@@ -262,9 +263,9 @@ cd ~/claude-code-base && bash scripts/rollback.sh <попередній тег>
 ```bash
 ~/bin/claude-metrics --weekly
 ```
-Розбіжність ECC з upstream:
+Звірка джерел (у клоні бази; мережа і `gh` з входом):
 ```bash
-~/bin/ecc-drift.sh
+python3 -I -B scripts/sources-check.py
 ```
 ТЗ з Markdown у Word і PDF:
 ```bash
