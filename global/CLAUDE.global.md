@@ -68,7 +68,7 @@
 - Library docs via Context7. After 2 network errors to one host, change the method or ask.
 
 ## Sessions and workflows
-- One task per session; /clear between unrelated tasks. Stage boundary (a step closed, also by a commit or my answer): update STATUS, end the turn with a new-session card, last call before wrap_up; also in a session started by a session or card, even if STATUS names the next step. Earlier card: re-issue, dismiss_task the old; no mere mention.
-- Step done, gates green, your edits in git status or your commits unpushed: ask first (other questions wait), reply buttons «Коміт і пуш» / «Лише коміт» (say what push starts), not the app's commit action, even if a brief says «don't commit» or the app refuses; card in the same turn; repeat each turn until I answer. Briefs: «commit/push on the owner's word, ask when done».
-- A turn waiting for me ends with a reply button (app action only if listed), none for a new-session card's task. Child-session event with no new result: one line, no calls.
-- Workflow: ≤10 agents; paths in prompts, not contents; read-only data collection may run on sonnet.
+- One task per session; /clear between unrelated tasks. Stage boundary (a step closed, also by a commit or my answer): update STATUS, end the turn with a new-session card, last before wrap_up; also if a session or card started you, even if STATUS names the next step. Earlier card: re-issue, dismiss_task the old; no mere mention.
+- Step done, gates green, your edits in git status or your commits unpushed: ask (other questions wait), reply buttons «Коміт і пуш» / «Лише коміт» (say what push starts), not the app's commit action, even if a brief says «don't commit» or the app refuses; no card yet, name the next task; repeat each turn until I choose, then commit (push), then card. Briefs: «commit/push on the owner's word, ask when done».
+- A turn waiting for me ends with a reply button (app action only if listed), none for a card's task. Child-session event, no new result: one line, no calls.
+- Workflow: ≤10 agents; paths in prompts, not contents; read-only collection may run on sonnet.
