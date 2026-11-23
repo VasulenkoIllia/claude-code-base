@@ -107,7 +107,7 @@ fi
 for h in dup-guard:"no duplicates" doc-reminder:"nothing to remind" session-hint:"no hint" \
     bash-guard:"an ask about text that does not run, with a dead jq about every command" \
     push-allow:"a permission prompt for every push to a feature branch" \
-    node-std:"no upgrade proposal"; do
+    node-std:"no upgrade proposal and no hint about packs"; do
   name=${h%%:*}; ERRLOG="$CLAUDE_HOME/logs/$name.err"
   if [ -e "$ERRLOG" ] && [ ! -w "$ERRLOG" ]; then
     echo "  WARN: $(show_path "CLAUDE_HOME/logs/$name.err") is not writable: $name cannot log its errors"
@@ -119,7 +119,7 @@ for h in dup-guard:"no duplicates" doc-reminder:"nothing to remind" session-hint
   errors=$(($(grep -c '' "$ERRLOG" || true) - drift))
   if [ "$errors" -gt 0 ]; then
     echo "  WARN: $name internal errors: $errors in $(show_path "CLAUDE_HOME/logs/$name.err"), last: $(grep -vE "$DRIFT_RE" "$ERRLOG" | tail -n 1 | cut -c1-120)"
-    echo "        (a dead hook reads as \"${h#*:}\"; the line names the cause: HookError git (try /usr/bin/git --version), ShimExit or ShimOutput (python3), JqExit or JqOutput (jq), HookExit (bash-guard stopped and asked, most often a failed fork: the process limit ran out; this line has no date, the time is in the line of hook failures), TimeLimit (a command too long for bash-guard or staged text too long for gitleaks: it asked, the hook is fine; with \"in commit-leaks\": the commit was refused), GitleaksExit (no verdict on the secrets of a commit, it asked; with \"in commit-leaks\": the commit went on with a line in its output; 127: no gitleaks on PATH or in /opt/homebrew/bin); node-std: ImportError or ModuleNotFoundError skill (no skill new-project), JSONDecodeError skill (its versions.json), PermissionError state (~/.claude/state), LockBusy state, TimeLimit (over 5 s), the project gets the line in a later session; after the fix delete the file$older)"
+    echo "        (a dead hook reads as \"${h#*:}\"; the line names the cause: HookError git (try /usr/bin/git --version), ShimExit or ShimOutput (python3), JqExit or JqOutput (jq), HookExit (bash-guard stopped and asked, most often a failed fork: the process limit ran out; this line has no date, the time is in the line of hook failures), TimeLimit (a command too long for bash-guard or staged text too long for gitleaks: it asked, the hook is fine; with \"in commit-leaks\": the commit was refused), GitleaksExit (no verdict on the secrets of a commit, it asked; with \"in commit-leaks\": the commit went on with a line in its output; 127: no gitleaks on PATH or in /opt/homebrew/bin); node-std: ImportError or ModuleNotFoundError skill (no skill new-project), JSONDecodeError skill (its versions.json), PermissionError state (~/.claude/state), LockBusy state, TimeLimit (over 5 s), the project gets the line in a later session; its packs check, steps packs and pack-state: CatalogShape or JSONDecodeError packs (~/.claude/packs/catalog.json), ModuleNotFoundError packs (no pack_signals.py in the hooks), LockBusy pack-state, TimeLimit packs (over its 2 s); a step with -record: the line was said and its record not written, it comes once more; after the fix delete the file$older)"
   fi
   if [ "$drift" -gt 0 ]; then
     echo "  WARN: $name input of an unknown shape: $drift in $(show_path "CLAUDE_HOME/logs/$name.err"), last: $(grep -E "$DRIFT_RE" "$ERRLOG" | tail -n 1 | cut -c1-120)"

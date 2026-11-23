@@ -1,28 +1,45 @@
 #!/usr/bin/env python3
-"""node-std: SessionStart hook, started by node-std.sh (stdlib, 3.9+). Once per project and Node standard it tells the
-model that the project's Node is behind the base's standard and asks it to propose the upgrade as a task of its own: a
-new-session card whose brief follows ~/.claude/skills/new-project/upgrade.md (owner's decisions 03.11.2026).
+"""node-std: SessionStart hook, started by node-std.sh (stdlib, 3.9+). At the start of a new conversation it looks at
+the project twice and prints what it has to say as one hookSpecificOutput.additionalContext, a line per check (each
+under 1000 B). A check that breaks, or runs out of its time, leaves the other its say: of the 5 s budget the packs
+check may take 2, the Node check has the rest. The locks of the two state files are taken only when both checks have
+decided, for the lines and their records: a slow check never holds one.
+1. Packs of the library (ADR-007, owner's decisions B7 and the quiz of 22.11.2026), made first, so before both early
+exits of the Node check: the packs of ~/.claude/packs/catalog.json whose file signals match the root of the project
+and that its settings neither enable nor refuse, by pack_signals.py next to this file, the code `claude-pack suggest`
+runs. The line names them and asks the model to tell the owner and to offer the skill library-advisor; the hook
+enables nothing. A pack is named once per project, and a project is judged once per version of the signals of the
+catalog, "nothing" included: the state file (~/.claude/state/pack-hint.jsonl, one JSON line: the version, the project,
+the packs named, the date) keeps both. Settings or a signal file that did not read, and a project that has 3 packs on
+(no room), leave no "judged" record: the next session looks again. The project is the repository of the session's
+folder, with no git the folder itself. Silent with no catalog (the public version), where .git is a file (a git
+worktree: the local settings are in the main repository; a submodule too) and in a folder that is no project (the home
+folder, a folder of ~/.claude).
+2. The Node standard: once per project and standard it tells the model that the project's Node is behind the base's
+standard and asks it to propose the upgrade as a task of its own: a new-session card whose brief follows
+~/.claude/skills/new-project/upgrade.md (owner's decisions 03.11.2026).
 The project is the git repository of the session's folder (searched up to the home folder; outside it, or with no
 git, the folder itself), a worktree counted as its main repository when main lists it, with a package.json in its root
 that holds a JSON object. The skill's node_std.py decides: the oldest Node of `.nvmrc`, of the node images of the
 Dockerfiles and Compose files and of the CI, against versions.json. Behind the standard, end of life within 6 months or
-past it, or no Node pinned: one line of hookSpecificOutput.additionalContext (under 1000 B); on the standard or newer:
-silence. Then the verdict goes into the state file (~/.claude/state/node-std.jsonl, one JSON line: the standard's major,
-the main repository, the state, the date) under a lock, and the project stays silent until the standard's major
-changes; an unknown one (a place not read or with no plain version) is not recorded, the next session judges again.
+past it, or no Node pinned: a line; on the standard or newer: silence. Then the verdict goes into the state file
+(~/.claude/state/node-std.jsonl, one JSON line: the standard's major, the main repository, the state, the date) under
+a lock, and the project stays silent until the standard's major changes; an unknown one (a place not read or with no
+plain version) is not recorded, the next session judges again.
 Speaks only at the start of a new conversation (source startup or clear). A resume, a fork and a compaction go on
-with an old one, and the app resumes an old session with no prompt to follow (seen 08.11), so the line would be
+with an old one, and the app resumes an old session with no prompt to follow (seen 08.11), so a line would be
 recorded as said and never reach the model. Silent for a subagent (agent_id) and outside a project too.
-The line holds only numbers, dates and fixed words: the repository is untrusted.
-Never blocks: always exit 0. An error or the time budget gone: silence, no record and one line (time, class, step) in
-~/.claude/logs/node-std.err, which scripts/doctor.sh shows; an input field of another type or missing: a ShapeDrift
-line, then on as before.
+The lines hold only numbers, dates, pack names of the catalog (each checked against the form of a pack name) and fixed
+words: the repository is untrusted.
+Never blocks: always exit 0. An error or the time gone: silence of that check, no record of it and one line (time,
+class, step) in ~/.claude/logs/node-std.err, which scripts/doctor.sh shows; the steps of the packs check are packs
+and pack-state, of the Node check skill, verdict and state, a record that was not written adds -record. An input
+field of another type or missing: a ShapeDrift line, then on as before.
 Env (tests only): NODE_STD_SKILL=<folder of node_std.py>, NODE_STD_VERSIONS=<versions.json>, NODE_STD_STATE=<file>,
-NODE_STD_ERRLOG=<file>, NODE_STD_TODAY=YYYY-MM-DD, NODE_STD_BUDGET_S=<seconds>, NODE_STD_DEBUG=1 (the reason for
-silence on stderr).
+NODE_STD_PACK_STATE=<file>, NODE_STD_ERRLOG=<file>, NODE_STD_TODAY=YYYY-MM-DD, NODE_STD_BUDGET_S=<seconds>,
+NODE_STD_DEBUG=1 (the reasons for silence on stderr, the ones of the packs check after "packs:").
 """
 import datetime
-import fcntl
 import json
 import os
 import re
@@ -33,14 +50,16 @@ import time
 
 sys.dont_write_bytecode = True  # no __pycache__ in the managed hooks folder or in the skill
 HOOKS = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(HOOKS)  # -I drops the script folder from sys.path; at the end: nothing of it stands before the stdlib
+from node_std_lib import append, kept, locked, named, open_state, recorded  # noqa: E402 (after the path line)
 SKILLS = (os.path.join(HOOKS, '..', 'skills', 'new-project'),
           os.path.join(HOOKS, '..', 'skills', 'own', 'new-project'))
 MAX_INPUT = 1_000_000
-MAX_STATE = 1_000_000  # bytes at the end of the state file that are read: the newest records
 ERR_LOG_MAX = 64_000   # bytes; then no more lines
 DRIFT_CAP = 32_000     # ShapeDrift comes with every session while the input stays odd: room for a later error
 BUDGET_S = 5.0         # settings.json gives the hook 10 s
-LOCK_WAIT_S = 2.0
+PACKS_S = 2.0          # of the budget, what the packs check may take; the rest, 3 s or more, is the Node check's
+GRACE_S = 0.5          # after a check that used the budget up: the time to say what the other one decided
 HOME_DEPTH = 40
 WORKTREE = re.compile(r'^(.*)/\.git/worktrees/[^/]+/?$')
 SMALL_FILE = 4096      # bytes of a .git file or of a worktree's gitdir file that are read
@@ -51,7 +70,12 @@ ASK = (' In your first reply tell the owner this in one sentence and propose the
        ' says to follow ~/.claude/skills/new-project/upgrade.md. If the owner already asks for this upgrade, follow it'
        ' here instead. Change nothing of it without the owner\'s OK. The line comes once per project and Node'
        ' standard.')
+HINT = ('library-hint: the files of this project match packs of the owner\'s library that are not enabled here: %s.'
+        ' In your first reply tell the owner this in one sentence and offer to pick packs with the skill'
+        ' library-advisor; run it only on the owner\'s yes (if the owner already asks what to connect, run it now).'
+        ' Enable nothing without the owner\'s OK. The line comes once per project and pack.')
 step = 'input'
+deadline = 0.0         # time.monotonic() at which the budget ends; main sets it
 
 
 class TimeLimit(Exception):
@@ -142,47 +166,12 @@ def skill():
     return node_std, os.environ.get('NODE_STD_VERSIONS') or os.path.join(folder, 'versions.json')
 
 
-def recorded(fd, std, project):
-    """Is the project's verdict for this standard in the state file? Its newest MAX_STATE bytes are read."""
-    size = os.fstat(fd).st_size
-    os.lseek(fd, max(0, size - MAX_STATE), os.SEEK_SET)
-    lines = os.read(fd, MAX_STATE).decode('utf-8', 'replace').splitlines()[1 if size > MAX_STATE else 0:]
-    for line in lines:
-        try:
-            rec = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(rec, dict) and rec.get('std') == std and rec.get('project') == project:
-            return True
-    return False
-
-
-def open_state():
-    """The state file, a regular file of the owner's only: a FIFO or a device there is an error, not a wait."""
-    path = os.environ.get('NODE_STD_STATE') or os.path.expanduser('~/.claude/state/node-std.jsonl')
-    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise OSError('the state file is not a regular file')
-        os.fchmod(fd, 0o600)
-    except OSError:
-        os.close(fd)
-        raise
-    return fd
-
-
-def locked(fd):
-    """An exclusive lock on the state file within LOCK_WAIT_S: another session may be writing its verdict."""
-    stop = time.monotonic() + LOCK_WAIT_S
-    while True:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return True
-        except BlockingIOError:
-            if time.monotonic() > stop:
-                return False
-            time.sleep(0.05)
+def arm(share=None, least=0.001):
+    """The alarm at the end of the hook's budget, or `share` seconds from now when that is sooner; never under `least`
+    seconds: a spent budget still rings. With the hook's handler: a search of pack_signals borrows the signal."""
+    left = deadline - time.monotonic()
+    signal.signal(signal.SIGALRM, on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, max(min(left, share) if share else left, least))
 
 
 def text(ns, state, oldest, end, found, versions, manager):
@@ -204,6 +193,138 @@ def text(ns, state, oldest, end, found, versions, manager):
     return "node-std: %s; the base's Node standard is %s.%s%s" % (head, versions['node'], tool, ASK)
 
 
+def packs_part(root, today):
+    """The packs of the library that fit the project by its files, each named once. Pending: the line, and the record
+    that the project is judged for this version of the signals (also when there is nothing to name)."""
+    global step
+    step = 'packs'
+    claude = os.path.realpath(os.path.expanduser('~/.claude'))
+    path, git = os.path.join(claude, 'packs', 'catalog.json'), os.path.join(root, '.git')
+    if not os.path.lexists(path):  # a catalog that is there and does not open is an error, logged by its class
+        return debug('packs: no catalog')
+    if os.path.lexists(git) and not os.path.isdir(git):
+        return debug('packs: a git worktree')
+    import pack_signals as lib
+    project = os.path.realpath(root)
+    if not lib.is_project(project, claude):
+        return debug('packs: not a project folder')
+    known, packs, version = lib.load(path)
+
+    def compute(fd):
+        global step
+        judged, said = named(fd, version, project)
+        if judged:
+            return debug('packs: judged for this project and catalog')
+        step = 'packs'
+        try:
+            fits, open_why = lib.fitting(project, known, packs)
+        except lib.Unread:  # the project's own file: its doctor line says so, here the next session looks again
+            return debug('packs: the settings of the project do not read')
+        if open_why and said.issuperset(fits):  # no verdict on the project, nothing to say: no record and no lock
+            return debug('packs: ' + open_why)
+
+        def settle():
+            judged, said = named(fd, version, project)
+            if judged:
+                return debug('packs: another session judged it')
+            new = [name for name in fits if name not in said]
+            if not new:
+                debug('packs: ' + (open_why or 'nothing new to name'))
+            if open_why and not new:  # another session named them meanwhile: no record
+                return None
+            record = {'catalog': version, 'project': project, 'packs': new, 'date': today.isoformat()}
+            return HINT % ', '.join(new) if new else None, dict(record, unread=True) if open_why else record
+        return settle
+    step = 'pack-state'
+    return kept(open_state('NODE_STD_PACK_STATE', 'pack-hint.jsonl'), 'pack-state', compute)
+
+
+def node_part(root, today):
+    """The Node of the project against the base's standard, said once per project and standard. Pending: the line,
+    and the record of the verdict."""
+    global step
+    if not os.path.lexists(os.path.join(root, 'package.json')):
+        return debug('no package.json')
+    step = 'skill'
+    ns, versions_path = skill()
+    with open(versions_path, encoding='utf-8') as fh:
+        versions = json.load(fh)
+    std = str(versions['node'])
+    step = 'verdict'
+    project = main_repo(root)
+
+    def compute(fd):
+        global step
+        if recorded(fd, std, project):
+            return debug('said for this project and standard')
+        step = 'verdict'
+        pkg = ns.scaffold_gaps.package_of(root)
+        if not pkg:  # a link, a special file, empty or not a JSON object: no project the standard can judge
+            return debug('package.json is not a JSON object the hook reads')
+        found = ns.places(root, ns.scaffold_project.project_files(root))
+        state, oldest, end = ns.verdict(found, versions, today)
+        if state == ns.UNKNOWN:  # a place not read or with no plain version: the next session judges again
+            return debug('state ' + state)
+        line = text(ns, state, oldest, end, found, versions, ns.manager_state(root, pkg, versions)) \
+            if state in SPEAKS else None
+
+        def settle():
+            if recorded(fd, std, project):
+                return debug('another session said it')
+            if line is None:
+                debug('state ' + state)
+            return line, {'std': std, 'project': project, 'state': state, 'date': today.isoformat()}
+        return settle
+    step = 'state'
+    return kept(open_state('NODE_STD_STATE', 'node-std.jsonl'), 'state', compute)
+
+
+def answer_of(waits):
+    """(line, record) of a check that still has something to say or to record, decided under the lock of its state
+    file, else None. A busy lock, an error and the time gone are logged and cost that check alone: each has the rest
+    of the budget, GRACE_S at the least."""
+    global step
+    step = waits.step
+    try:
+        arm(least=GRACE_S)
+        if locked(waits.fd):
+            return waits.settle()
+        log('LockBusy ' + step)
+    except TimeLimit:
+        log('TimeLimit ' + step)
+    except Exception as e:  # the state file of this check; the other one is settled all the same
+        signal.setitimer(signal.ITIMER_REAL, 0)  # no alarm inside the handler
+        log('%s %s' % (type(e).__name__, step))
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)  # no alarm between the checks, nor between the lines and the records
+    return None
+
+
+def settled(pending):
+    """[(check, (line, record))] of the checks that have an answer."""
+    answers = [(waits, answer_of(waits)) for waits in pending]
+    return [(waits, got) for waits, got in answers if got is not None]
+
+
+def checks(root, today, pending):
+    """Both checks, each within its share of the budget; what one leaves to settle goes to `pending`."""
+    for check, share in ((packs_part, PACKS_S), (node_part, None)):
+        try:
+            arm(share)
+            waits = check(root, today)
+            if waits is not None:
+                pending.append(waits)
+        except TimeLimit:  # out of its share: the other check keeps its own; out of the budget: one line says so
+            log('TimeLimit ' + step)
+            if time.monotonic() >= deadline:
+                break
+        except Exception as e:  # a check that broke leaves the other its say; the class and the step go to the log
+            signal.setitimer(signal.ITIMER_REAL, 0)  # no alarm inside the handler
+            log('%s %s' % (type(e).__name__, step))
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)  # no alarm between the checks
+
+
 def run(data):
     global step
     if data.get('agent_id'):
@@ -214,45 +335,28 @@ def run(data):
         return debug('not a new conversation')
     cwd = os.path.abspath(data['cwd'] if os.path.isdir(data.get('cwd') or '') else os.getcwd())
     root = repo_root(cwd)
-    if not os.path.lexists(os.path.join(root, 'package.json')):
-        return debug('no package.json')
-    step = 'skill'
-    ns, versions_path = skill()
-    with open(versions_path, encoding='utf-8') as fh:
-        versions = json.load(fh)
-    std = str(versions['node'])
-    step = 'verdict'
-    project = main_repo(root)
     today = datetime.date.fromisoformat(os.environ.get('NODE_STD_TODAY') or datetime.date.today().isoformat())
-    step = 'state'
-    fd = open_state()
+    pending = []
     try:
-        if recorded(fd, std, project):
-            return debug('said for this project and standard')
-        step = 'verdict'
-        pkg = ns.scaffold_gaps.package_of(root)
-        if not pkg:  # a link, a special file, empty or not a JSON object: no project the standard can judge
-            return debug('package.json is not a JSON object the hook reads')
-        found = ns.places(root, ns.scaffold_project.project_files(root))
-        state, oldest, end = ns.verdict(found, versions, today)
-        line = text(ns, state, oldest, end, found, versions, ns.manager_state(root, pkg, versions)) \
-            if state in SPEAKS else None
-        step = 'state'
-        if not locked(fd):
-            return log('LockBusy state')
-        if recorded(fd, std, project):
-            return debug('another session said it')
-        signal.setitimer(signal.ITIMER_REAL, 0)  # no alarm between the line and its record
-        if line is not None:  # the line before its record: a failed write repeats it later, never loses it
-            print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SessionStart', 'additionalContext': line}}),
-                  flush=True)
-        if state != ns.UNKNOWN:  # a place not read or with no plain version: the next session judges again
-            os.write(fd, (json.dumps({'std': std, 'project': project, 'state': state, 'date': today.isoformat()})
-                          + '\n').encode('utf-8'))
+        try:
+            checks(root, today, pending)
+        except TimeLimit:  # a ring between the checks or in the handler of one: what is decided is said all the same
+            log('TimeLimit ' + step)
+        said = settled(pending)
+        step = 'print'
+        lines = [line for _, (line, _) in said if line is not None]
+        if lines:  # the lines before their records: a failed write repeats a line later, never loses it
+            print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SessionStart',
+                                                     'additionalContext': '\n'.join(lines)}}), flush=True)
+        for waits, (_, record) in said:
+            step = waits.step + '-record'
+            try:
+                append(waits.fd, record)
+            except Exception as e:  # wide on purpose: the record of the other check is written all the same
+                log('%s %s' % (type(e).__name__, step))
     finally:
-        os.close(fd)
-    if line is None:
-        debug('state ' + state)
+        for waits in pending:
+            os.close(waits.fd)
 
 
 def on_alarm(*_):
@@ -269,9 +373,10 @@ def budget():
 
 
 def main():
-    signal.signal(signal.SIGALRM, on_alarm)
-    try:  # the timer inside: an alarm right after it still lands in the handler below
-        signal.setitimer(signal.ITIMER_REAL, budget())
+    global deadline
+    try:  # the handler and the timer inside: an alarm right after them still lands in the handler below
+        deadline = time.monotonic() + budget()
+        arm()
         data = read_input()
         if data is not None:
             run(data)

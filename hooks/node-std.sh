@@ -1,5 +1,7 @@
 #!/bin/bash
-# SessionStart: node-std.py tells the model once per project and Node standard that the project's Node is behind the
+# SessionStart: node-std.py looks at the project twice (its top comment has the rules). It names the packs of the
+# library that fit the project by its files, each once per project, so that the model offers the skill
+# library-advisor; and it tells the model once per project and Node standard that the project's Node is behind the
 # base's standard, so that it proposes the upgrade as a task of its own (~/.claude/skills/new-project/upgrade.md). Only
 # adds context, never blocks: always exit 0. Input without "SessionStart" leaves here, before python starts.
 # shim_log <what>: one line, no data, when python cannot run (missing, killed: the 5 s alarm is its own, a kill by the
